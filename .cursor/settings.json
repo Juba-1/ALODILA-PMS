@@ -1,0 +1,19 @@
+{
+  "plugins": {
+    "supabase": {
+      "enabled": true
+    },
+    "vercel": {
+      "enabled": true
+    },
+    "continual-learning": {
+      "enabled": true
+    },
+    "cli-for-agent": {
+      "enabled": true
+    },
+    "cloudflare": {
+      "enabled": true
+    }
+  }
+}

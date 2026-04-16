@@ -1,0 +1,42 @@
+# THE MASTER PRD & ARCHITECTURE (V2.0) — ALODILA-PMS
+
+You are an Elite Enterprise Software Architect and Senior Full-Stack Developer. We are building **"ALODILA-PMS"**, an Enterprise Property Management System for the Saudi market.
+
+## 1. VISION & CORE STANDARDS
+- **Goal:** A centralized, Smart-Automated system to manage real estate portfolios, contracts, and calculate Net ROI, eliminating Excel chaos.
+- **UI/UX:** STRICTLY Arabic and RTL (`dir="rtl"`, `lang="ar"`).
+- **Colors:** Deep Navy (`#0f172a`) for sidebars/headers (light text for contrast), Corporate Gold accents, and Clean White/Light Gray backgrounds.
+- **Global Rule:** NO HARD DELETES. Use `is_deleted = false` for all queries.
+
+## 2. DATABASE SCHEMA & EXACT DATA FLOW (STRICT)
+Do NOT invent fields outside this schema. All tables have `id` (UUID), `is_deleted` (Boolean), `created_at`, `updated_at`.
+
+1. **Properties (`properties`):** `name` (Req), `type` (Enum: Residential, Commercial, Mixed), `total_units_capacity` (Integer, Req), `deed_number` (Opt), `maps_link` (Opt URL), `owner_id` (Req, FK to auth).
+2. **Units (`units`):** *MUST BE CREATED BEFORE METERS.* `property_id` (FK), `unit_name` (Req), `type` (Enum), `target_rent_value` (Numeric, Req).
+   - *Smart Feature:* UI must support a "Bulk Clone" action (Input details + Quantity -> Auto-generate multiple unit rows).
+3. **Meter Pools (`meters`):** `property_id` (FK), `meter_type` (electricity/water), `pool_quantity` (Integer), `unit_id` (Nullable, assigned later).
+4. **Tenants (`tenants` - CRM):** `national_id_or_cr` (Unique), `full_name`, `tenant_type`, `phone` (Must support generating `wa.me` links), `national_address`, `compliance_index` (Numeric, default 0).
+5. **Contracts (`contracts`):** `unit_id` (FK), `tenant_id` (FK), `ejar_contract_number` (Opt), `start_date`, `end_date`, `actual_handover_date` (Opt), `contract_value`, `deposit` (Default 0), `billing_cycle`, `status`.
+6. **Finance (`invoices` & `payments`):**
+   - *Invoices:* `contract_id`, `due_date`, `subtotal_amount`, `vat_applicable` (Bool), `total_amount`.
+   - *Payments:* `invoice_id`, `payment_date`, `amount` (Supports partial).
+   - *Rule:* NO automated delay fines (Sharia compliance).
+7. **Maintenance (`maintenance_requests`):** `unit_id`, `description`, `cost_amount`, `status`. Costs deduct from Property Net ROI.
+
+## 3. REPORTING & ANALYTICS ENGINE
+Build the foundation to support these future dashboards:
+1. **Portfolio Overview:** Total assets, valuation, capacity.
+2. **Occupancy Rate:** Rented vs. Vacant units.
+3. **Cashflow:** Collected funds, upcoming due, held deposits.
+4. **Collections & Arrears:** Overdue invoices tied to tenant compliance index.
+5. **Net ROI:** Total Rent minus Maintenance Costs.
+6. **Pipeline:** Newly added properties pending unit activation.
+
+## 4. AI INTEGRATION CAPABILITIES (PREPARE ARCHITECTURE)
+- Data Ingestion: Parsing legacy Excel files via AI agents.
+- Error/Maintenance Classification: AI categorizing raw maintenance text (e.g., "electrical", "plumbing").
+- Narrative Reports: AI reading DB stats to generate C-level Arabic text summaries for owners.
+
+## 5. SECURITY & RLS
+- Super Admin: Full access. Checked via `current_setting('request.jwt.claims', true)::jsonb ->> 'role'`. (NEVER use `auth.jwt()`).
+- Database Transactions: Must be used for linked inserts (e.g., Contract + Invoice) to ensure data integrity.

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="ALODILA">
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+  <path
+    fill="#f59e0b"
+    d="M32 14 46 50h-8.2l-2.4-7.2H28.6L26.2 50H18L32 14Zm-3.4 22.4h6.8L32 26.2l-3.4 10.2Z"
+  />
+  <path stroke="#334155" stroke-width="1.5" stroke-linecap="round" d="M14 52h36" opacity="0.6" />
+</svg>
