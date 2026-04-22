@@ -10,6 +10,7 @@ import TenantsList from './pages/tenants/TenantsList.jsx'
 import TenantStatement from './pages/tenants/TenantStatement.jsx'
 import OwnersList from './pages/owners/OwnersList.jsx'
 import ContractsList from './pages/contracts/ContractsList.jsx'
+import ContractDetail from './pages/contracts/ContractDetail.jsx'
 import InvoicesList from './pages/finance/InvoicesList.jsx'
 import InvoiceDetail from './pages/finance/InvoiceDetail.jsx'
 import UnitsInventory from './pages/units/UnitsInventory.jsx'
@@ -140,6 +141,7 @@ export default function App() {
                 <Route path="tenants" element={<TenantsList />} />
                 <Route path="tenants/:id/statement" element={<TenantStatement />} />
                 <Route path="contracts" element={<ContractsList />} />
+                <Route path="contracts/:id" element={<ContractDetail />} />
                 <Route path="finance" element={<InvoicesList />} />
                 <Route path="invoices/:id" element={<InvoiceDetail />} />
                 <Route path="maintenance" element={<MaintenanceList />} />

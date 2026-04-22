@@ -12,7 +12,8 @@ import { reportLoadFailure } from '../../lib/supabase/authErrors'
 import { exportReportPdf } from '../../lib/print/targetedPdf'
 
 export default function OwnersList() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
   const { push: toastPush } = useToastDispatch()
   const [items, setItems] = useState([])
   const [busy, setBusy] = useState(true)
@@ -30,7 +31,7 @@ export default function OwnersList() {
       const data = await getOwners()
       setItems(data)
     } catch (e) {
-      reportLoadFailure(toastPush, e, 'تعذر تحميل الملاك', true)
+      reportLoadFailure(toastPush, e, t('ownersList.toastLoadFail'), true)
     } finally {
       setBusy(false)
     }
@@ -69,7 +70,7 @@ export default function OwnersList() {
     const nid = nationalId.trim()
     const ph = phone.trim()
     if (!fn || !nid || !ph) {
-      toastPush({ type: 'error', title: 'تحقق من المدخلات', message: 'الاسم والهوية والجوال إلزامية.' })
+      toastPush({ type: 'error', title: t('ownersList.toastValidationTitle'), message: t('ownersList.toastValidationFields') })
       return
     }
     setSaving(true)
@@ -77,37 +78,43 @@ export default function OwnersList() {
       if (editing?.id) {
         const updated = await updateOwner(editing.id, { full_name: fn, phone: ph })
         setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-        toastPush({ type: 'success', title: 'تم التحديث', message: 'تم تحديث بيانات المالك.' })
+        toastPush({ type: 'success', title: t('ownersList.toastUpdatedTitle'), message: t('ownersList.toastUpdatedMsg') })
       } else {
         const created = await createOwner({ full_name: fn, national_id: nid, phone: ph })
         setItems((prev) => [...prev, created].sort((a, b) => String(a.full_name).localeCompare(String(b.full_name))))
-        toastPush({ type: 'success', title: 'تمت الإضافة', message: 'تم إضافة المالك إلى CRM.' })
+        toastPush({ type: 'success', title: t('ownersList.toastCreatedTitle'), message: t('ownersList.toastCreatedMsg') })
       }
       setModalOpen(false)
       setEditing(null)
     } catch (err) {
-      reportLoadFailure(toastPush, err, 'فشل الحفظ', true)
+      reportLoadFailure(toastPush, err, t('ownersList.toastSaveFail'), true)
     } finally {
       setSaving(false)
     }
   }
 
   async function onDelete(id) {
-    if (!window.confirm('هل تريد إخفاء هذا المالك؟')) return
+    if (!window.confirm(t('ownersList.confirmHide'))) return
     try {
       await softDeleteOwner(id)
       setItems((prev) => prev.filter((x) => x.id !== id))
-      toastPush({ type: 'success', title: 'تم الإخفاء', message: 'تم إخفاء المالك.' })
+      toastPush({ type: 'success', title: t('ownersList.toastHiddenTitle'), message: t('ownersList.toastHiddenMsg') })
     } catch (err) {
-      reportLoadFailure(toastPush, err, 'فشل الإخفاء', true)
+      reportLoadFailure(toastPush, err, t('ownersList.toastHideFail'), true)
     }
   }
 
   const exportRows = useMemo(
-    () => filtered.map((o) => ({ الاسم: o.full_name, الهوية: o.national_id, الجوال: o.phone })),
-    [filtered],
+    () => filtered.map((o) => ({
+      [t('ownersList.colName')]: o.full_name,
+      [t('ownersList.colId')]: o.national_id,
+      [t('ownersList.colPhone')]: o.phone,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filtered, i18n.language],
   )
-  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
+
+  const modalTitle = editing ? t('ownersList.modalEditTitle') : t('ownersList.modalAddTitle')
 
   return (
     <div className="max-w-7xl">
@@ -115,22 +122,21 @@ export default function OwnersList() {
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <CardTitle>الملاك (CRM)</CardTitle>
-              <CardDescription>إدارة ملاك العقارات المرتبطين بالعقود والبوابة عند التفعيل</CardDescription>
+              <CardTitle>{t('ownersList.pageTitle')}</CardTitle>
+              <CardDescription>{t('ownersList.pageDesc')}</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
-              <ExportButton rows={exportRows} filename="تصدير-الملاك" disabled={busy} />
+              <ExportButton rows={exportRows} filename={t('ownersList.exportFilename')} disabled={busy} />
               <TargetedPdfButton
-                label="طباعة / PDF"
                 disabled={busy}
                 onClick={() =>
                   exportReportPdf({
-                    title: dir === 'ltr' ? 'Owners (CRM)' : 'الملاك (CRM)',
-                    subtitle: dir === 'ltr' ? 'Owner master list' : 'قائمة ملاك CRM',
+                    title: t('ownersList.pdfTitle'),
+                    subtitle: t('ownersList.pdfSubtitle'),
                     filename: 'owners',
                     metaLines: [
-                      `${dir === 'ltr' ? 'Date' : 'التاريخ'}: ${new Date().toISOString().slice(0, 10)}`,
-                      `${dir === 'ltr' ? 'Rows' : 'عدد الصفوف'}: ${exportRows.length}`,
+                      `${t('common.date')}: ${new Date().toISOString().slice(0, 10)}`,
+                      `${t('contractsList.pdfRowsLabel')}: ${exportRows.length}`,
                     ],
                     rows: exportRows,
                     dir,
@@ -138,37 +144,37 @@ export default function OwnersList() {
                 }
               />
               <Button variant="gold" onClick={openCreate} disabled={busy}>
-                إضافة مالك
+                {t('ownersList.newOwner')}
               </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           <div className="mb-4">
-            <Label>بحث</Label>
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث بالاسم أو الهوية أو الجوال..." />
+            <Label>{t('ownersList.searchLabel')}</Label>
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('ownersList.searchPlaceholder')} />
           </div>
           <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200">
             <table className="w-full border-collapse text-sm">
               <thead className="bg-slate-50">
-                <tr className="text-right text-xs font-bold text-slate-600">
-                  <th className="px-4 py-3">الاسم</th>
-                  <th className="px-4 py-3">الهوية / السجل</th>
-                  <th className="px-4 py-3">الجوال</th>
-                  <th className="px-4 py-3">إجراءات</th>
+                <tr className="text-start text-xs font-bold text-slate-600">
+                  <th className="px-4 py-3">{t('ownersList.colName')}</th>
+                  <th className="px-4 py-3">{t('ownersList.colId')}</th>
+                  <th className="px-4 py-3">{t('ownersList.colPhone')}</th>
+                  <th className="px-4 py-3">{t('ownersList.colActions')}</th>
                 </tr>
               </thead>
               <tbody className="bg-white">
                 {busy ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                      جاري التحميل...
+                      {t('ownersList.loadingRow')}
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                      لا توجد نتائج. أنشئ مالكاً جديداً أو عدّل البحث.
+                      {t('ownersList.noResults')}
                     </td>
                   </tr>
                 ) : (
@@ -180,10 +186,10 @@ export default function OwnersList() {
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
                           <Button variant="subtle" size="sm" type="button" onClick={() => openEdit(o)}>
-                            تعديل
+                            {t('ownersList.editAction')}
                           </Button>
                           <Button variant="ghost" size="sm" type="button" onClick={() => onDelete(o.id)}>
-                            إخفاء
+                            {t('ownersList.hideAction')}
                           </Button>
                         </div>
                       </td>
@@ -193,36 +199,36 @@ export default function OwnersList() {
               </tbody>
             </table>
           </div>
-          <p className="mt-4 text-xs text-slate-500">لربط مالك بعقار: من صفحة العقار اختر المالك من القائمة أو أضف مالكاً سريعاً.</p>
+          <p className="mt-4 text-xs text-slate-500">{t('ownersList.linkHint')}</p>
         </CardContent>
       </Card>
 
-      <Modal open={modalOpen} onClose={() => (saving ? null : setModalOpen(false))} title={editing ? 'تعديل مالك' : 'إضافة مالك'}>
+      <Modal open={modalOpen} onClose={() => (saving ? null : setModalOpen(false))} title={modalTitle}>
         <CardHeader>
-          <CardTitle>{editing ? 'تعديل مالك' : 'إضافة مالك'}</CardTitle>
-          <CardDescription>بيانات الملف التعريفي للمالك في CRM</CardDescription>
+          <CardTitle>{modalTitle}</CardTitle>
+          <CardDescription>{t('ownersList.modalDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="grid gap-3">
             <div>
-              <Label>الاسم الكامل</Label>
+              <Label>{t('ownersList.fieldFullName')}</Label>
               <Input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
             </div>
             <div>
-              <Label>رقم الهوية / السجل</Label>
+              <Label>{t('ownersList.fieldNationalId')}</Label>
               <Input value={nationalId} onChange={(e) => setNationalId(e.target.value)} required readOnly={Boolean(editing)} />
             </div>
             <div>
-              <Label>رقم الجوال</Label>
+              <Label>{t('ownersList.fieldPhone')}</Label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} required />
             </div>
-            {editing ? <p className="text-xs text-slate-500">لا يمكن تغيير رقم الهوية/السجل بعد الإنشاء (مفتاح فريد).</p> : null}
+            {editing ? <p className="text-xs text-slate-500">{t('ownersList.nationalIdLocked')}</p> : null}
             <div className="flex gap-2 pt-2">
               <Button variant="gold" type="submit" className="flex-1" disabled={saving}>
-                {saving ? 'جاري الحفظ...' : 'حفظ'}
+                {saving ? t('common.saving') : t('common.save')}
               </Button>
               <Button variant="subtle" type="button" className="flex-1" onClick={() => setModalOpen(false)} disabled={saving}>
-                إلغاء
+                {t('common.cancel')}
               </Button>
             </div>
           </form>

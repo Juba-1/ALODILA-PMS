@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { cn } from './cn'
 
 export function Combobox({ label, value, onChange, options, placeholder, required }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const ph = placeholder ?? t('combobox.searchPh')
+  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const rootRef = useRef(null)
@@ -61,11 +62,11 @@ export function Combobox({ label, value, onChange, options, placeholder, require
         <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md">
           <div className="p-2">
             <input
-              dir="rtl"
+              dir={dir}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={ph}
-              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-right text-sm text-slate-800 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/20"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-start text-sm text-slate-800 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/20"
             />
           </div>
           <div className="max-h-56 overflow-auto p-1">

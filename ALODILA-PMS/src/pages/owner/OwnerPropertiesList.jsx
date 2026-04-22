@@ -1,18 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card'
 import { useToastDispatch } from '../../components/toast/ToastProvider'
 import { getOwnerProperties } from '../../lib/db/ownerPortal'
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
 
-function typeLabel(t) {
-  if (t === 'Residential') return 'سكني'
-  if (t === 'Commercial') return 'تجاري'
-  if (t === 'Mixed') return 'مختلط'
-  return t || '—'
-}
-
 export default function OwnerPropertiesList() {
+  const { t } = useTranslation()
   const { ownerCrmId } = useOutletContext()
   const { push } = useToastDispatch()
   const [busy, setBusy] = useState(true)
@@ -21,6 +16,15 @@ export default function OwnerPropertiesList() {
   const ownerKey = ownerCrmId || ''
   const toastPushRef = useRef(push)
   toastPushRef.current = push
+  const tRef = useRef(t)
+  tRef.current = t
+
+  const typeLabel = (raw) => {
+    if (raw === 'Residential') return t('owner.typeResidential')
+    if (raw === 'Commercial') return t('owner.typeCommercial')
+    if (raw === 'Mixed') return t('owner.typeMixed')
+    return raw || '—'
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -31,7 +35,7 @@ export default function OwnerPropertiesList() {
         if (!cancelled) setRows(list)
       } catch (e) {
         if (!cancelled && !isIgnorableAuthLockError(e)) {
-          reportLoadFailure((p) => toastPushRef.current?.(p), e, 'تعذر تحميل العقارات', true)
+          reportLoadFailure((p) => toastPushRef.current?.(p), e, tRef.current('owner.propertiesLoadFail'), true)
         }
       } finally {
         if (!cancelled) setBusy(false)
@@ -45,8 +49,8 @@ export default function OwnerPropertiesList() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>عقاراتي</CardTitle>
-        <CardDescription>العقارات المرتبطة بملف المالك في النظام — عرض فقط</CardDescription>
+        <CardTitle>{t('owner.propertiesTitle')}</CardTitle>
+        <CardDescription>{t('owner.propertiesDesc')}</CardDescription>
       </CardHeader>
       <CardContent>
         {busy ? (
@@ -56,16 +60,16 @@ export default function OwnerPropertiesList() {
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <div className="text-sm text-slate-500">لا توجد عقارات مرتبطة بحسابك.</div>
+          <div className="text-sm text-slate-500">{t('owner.propertiesEmpty')}</div>
         ) : (
           <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200">
-            <table className="min-w-full border-collapse text-right text-sm">
+            <table className="min-w-full border-collapse text-start text-sm">
               <thead className="bg-slate-50 text-xs font-bold text-slate-600">
                 <tr>
-                  <th className="border-b border-slate-200 px-3 py-2">الاسم</th>
-                  <th className="border-b border-slate-200 px-3 py-2">التصنيف</th>
-                  <th className="border-b border-slate-200 px-3 py-2">النوع</th>
-                  <th className="border-b border-slate-200 px-3 py-2">السعة</th>
+                  <th className="border-b border-slate-200 px-3 py-2">{t('owner.propertiesColName')}</th>
+                  <th className="border-b border-slate-200 px-3 py-2">{t('owner.propertiesColCategory')}</th>
+                  <th className="border-b border-slate-200 px-3 py-2">{t('owner.propertiesColType')}</th>
+                  <th className="border-b border-slate-200 px-3 py-2">{t('owner.propertiesColCapacity')}</th>
                   <th className="border-b border-slate-200 px-3 py-2"> </th>
                 </tr>
               </thead>
@@ -78,7 +82,7 @@ export default function OwnerPropertiesList() {
                     <td className="border-b border-slate-100 px-3 py-2 text-slate-700">{p.total_units_capacity ?? '—'}</td>
                     <td className="border-b border-slate-100 px-3 py-2">
                       <Link to={`/owner/properties/${p.id}`} className="font-semibold text-slate-900 hover:underline">
-                        تفاصيل
+                        {t('owner.propertiesColDetails')}
                       </Link>
                     </td>
                   </tr>

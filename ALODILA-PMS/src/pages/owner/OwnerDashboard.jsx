@@ -12,6 +12,7 @@ import {
 } from '../../lib/db/ownerPortal'
 import { formatMoneyLocale } from '../../lib/format/moneyLocale'
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
+import { OwnerRoiWidget } from '../../components/OwnerRoiWidget'
 
 function StatCard({ title, value, hint }) {
   return (
@@ -35,6 +36,7 @@ export default function OwnerDashboard() {
   const [totalRevenue, setTotalRevenue] = useState(0)
   const [totalMaintenance, setTotalMaintenance] = useState(0)
   const [netRoiTotal, setNetRoiTotal] = useState(0)
+  const [thisMonthRevenue, setThisMonthRevenue] = useState(0)
 
   const ownerKey = ownerCrmId || ''
   const toastPushRef = useRef(push)
@@ -76,6 +78,7 @@ export default function OwnerDashboard() {
         setTotalRevenue(rev)
         setTotalMaintenance(exp)
         setNetRoiTotal(net)
+        setThisMonthRevenue(Number(s.paymentsThisCalendarMonth ?? 0))
       } catch (e) {
         reportLoadFailure((p) => toastPushRef.current?.(p), e, tRef.current('errors.loadData'), !cancelled)
       } finally {
@@ -126,7 +129,15 @@ export default function OwnerDashboard() {
           <CardDescription>{t('owner.revenueCardDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-extrabold text-slate-900">{busy ? '—' : formatMoneyLocale(totalRevenue, lang)}</div>
+          {busy ? (
+            <div className="h-40 animate-pulse rounded-2xl bg-slate-100" />
+          ) : (
+            <OwnerRoiWidget
+              totalRevenue={totalRevenue}
+              totalMaintenance={totalMaintenance}
+              thisMonthRevenue={thisMonthRevenue}
+            />
+          )}
           <div className="mt-4 flex flex-wrap gap-4 text-sm font-bold text-slate-900">
             <Link to="/owner/reports" className="hover:underline">
               {t('owner.viewReports')}

@@ -67,6 +67,28 @@ export const contractFormPayloadSchema = z
     { message: 'تاريخ نهاية العقد يجب أن يكون بعد تاريخ البداية', path: ['end_date'] },
   )
   .superRefine((data, ctx) => {
+    // `contract_value` is the TOTAL lease value — must be positive & finite so
+    // the installment engine never produces phantom 0.00 invoices. We accept
+    // string or number and normalise here in one place.
+    const cv = Number(String(data.contract_value ?? '').toString().replace(/[, ]/g, ''))
+    if (!Number.isFinite(cv) || cv <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'قيمة العقد الإجمالية يجب أن تكون رقماً موجباً أكبر من صفر.',
+        path: ['contract_value'],
+      })
+    }
+
+    // Deposit can be 0 (no deposit agreements exist) but must never be negative.
+    const dep = Number(String(data.deposit ?? '0').toString().replace(/[, ]/g, ''))
+    if (!Number.isFinite(dep) || dep < 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'مبلغ التأمين لا يمكن أن يكون سالباً.',
+        path: ['deposit'],
+      })
+    }
+
     if (data.utility_payment_type !== 'مقطوع') return
     const n = Number(data.utility_flat_amount_sar)
     if (!Number.isFinite(n) || n <= 0) {

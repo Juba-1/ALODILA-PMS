@@ -1,5 +1,5 @@
 import { stringifyContextForPrompt } from './chatContext'
-import { getViteGroqApiKey } from './groqEnv'
+import { createAiUnavailableError, getViteGroqApiKey } from './groqEnv'
 import { groqChatCompletions } from './groqChat'
 
 /** JSON snapshot cap — rich admin/owner context (leases + financials). */
@@ -62,36 +62,28 @@ function historyToOpenAiMessages(history) {
 }
 
 /**
+ * Chat completion via Groq using the browser-side `VITE_GROQ_API_KEY`.
+ * Throws an `AI_UNAVAILABLE` error (not a crash) when the key is missing — the
+ * calling UI is responsible for showing the fallback banner instead.
+ *
  * @param {Array<{ role: 'user'|'assistant', content: string }>} history
  * @param {'super_admin'|'owner'|'staff'} userRole
  * @param {object} contextData
  */
 export async function sendChatMessage({ history, userRole, contextData }) {
+  const key = getViteGroqApiKey()
+  if (!key) throw createAiUnavailableError()
+
   const systemContent = buildSystemPrompt(userRole, contextData)
   const messages = [{ role: 'system', content: systemContent }, ...historyToOpenAiMessages(history)]
 
   try {
-    // Production hardening: never ship Groq API keys in the browser.
-    // - DEV: allow direct key for localhost convenience.
-    // - PROD: call the Vercel serverless proxy (`/api/groq-chat`).
-    const key = import.meta.env.DEV ? getViteGroqApiKey() : ''
-    if (import.meta.env.DEV && key) {
-      return await groqChatCompletions({
-        apiKey: key,
-        messages,
-        temperature: 0.35,
-        max_tokens: 2048,
-      })
-    }
-
-    const res = await fetch('/api/groq-chat', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ messages, temperature: 0.35, max_tokens: 2048 }),
+    return await groqChatCompletions({
+      apiKey: key,
+      messages,
+      temperature: 0.35,
+      max_tokens: 2048,
     })
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(json?.error || `Groq proxy error (${res.status})`)
-    return String(json?.text || '')
   } catch (e) {
     const msg = String(e?.message || e)
     const low = msg.toLowerCase()

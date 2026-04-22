@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/Button'
 import { CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Input, Label } from '../../components/ui/Input'
@@ -6,6 +7,7 @@ import { Select } from '../../components/ui/Select'
 import { suggestedInvoiceSubtotalFromContract } from '../../lib/finance/contractInvoiceBase'
 
 export default function InvoiceForm({ initialValue, contracts, busy, onSubmit, onCancel }) {
+  const { t } = useTranslation()
   const isEdit = Boolean(initialValue?.id)
 
   const [contractId, setContractId] = useState('')
@@ -13,7 +15,10 @@ export default function InvoiceForm({ initialValue, contracts, busy, onSubmit, o
   const [subtotal, setSubtotal] = useState('')
   const [vat, setVat] = useState(false)
 
-  const title = useMemo(() => (isEdit ? 'تعديل مطالبة إيجار' : 'إصدار مطالبة إيجار'), [isEdit])
+  const title = useMemo(
+    () => (isEdit ? t('invoiceForm.titleEdit') : t('invoiceForm.titleCreate')),
+    [isEdit, t]
+  )
 
   useEffect(() => {
     setContractId(initialValue?.contract_id || '')
@@ -44,7 +49,7 @@ export default function InvoiceForm({ initialValue, contracts, busy, onSubmit, o
     <>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>إصدار مطالبة مع حساب تلقائي للضريبة (15%) عند تفعيلها</CardDescription>
+        <CardDescription>{t('invoiceForm.desc')}</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -61,10 +66,10 @@ export default function InvoiceForm({ initialValue, contracts, busy, onSubmit, o
           className="grid grid-cols-1 gap-4 sm:grid-cols-2"
         >
           <div className="sm:col-span-2">
-            <Label>اختيار العقد (إلزامي)</Label>
+            <Label>{t('invoiceForm.contractLabel')}</Label>
             <Select value={contractId} onChange={(e) => setContractId(e.target.value)} required>
               <option value="" disabled>
-                اختر العقد...
+                {t('invoiceForm.contractPlaceholder')}
               </option>
               {contracts.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -76,20 +81,19 @@ export default function InvoiceForm({ initialValue, contracts, busy, onSubmit, o
           </div>
 
           <div>
-            <Label>تاريخ الاستحقاق (إلزامي)</Label>
+            <Label>{t('invoiceForm.dueDate')}</Label>
             <Input value={dueDate} onChange={(e) => setDueDate(e.target.value)} type="date" required />
           </div>
 
           <div>
-            <Label>المبلغ قبل الضريبة (إلزامي)</Label>
+            <Label>{t('invoiceForm.subtotal')}</Label>
             <Input value={subtotal} onChange={(e) => setSubtotal(e.target.value)} type="number" min={0} step="0.01" required />
             {!isEdit && selectedContract?.utility_payment_type === 'مقطوع' ? (
               <p className="mt-1 text-xs text-slate-600">
-                يتضمن هذا المقترح قيمة الإيجار المعتمدة في العقد زائد المبلغ المقطوع للخدمات ({selectedContract.utility_flat_amount_sar}{' '}
-                ر.س) — يمكنك تعديل المبلغ إذا لزم.
+                {t('invoiceForm.suggestionFlatUtility', { amount: selectedContract.utility_flat_amount_sar })}
               </p>
             ) : !isEdit && contractId ? (
-              <p className="mt-1 text-xs text-slate-500">تمت المطابقة مع قيمة العقد؛ عدّل يدوياً عند الحاجة.</p>
+              <p className="mt-1 text-xs text-slate-500">{t('invoiceForm.suggestionMatched')}</p>
             ) : null}
           </div>
 
@@ -102,23 +106,23 @@ export default function InvoiceForm({ initialValue, contracts, busy, onSubmit, o
                 className="h-4 w-4 accent-slate-900"
               />
               <div>
-                <div className="text-sm font-bold text-slate-900">خاضع للضريبة</div>
-                <div className="mt-0.5 text-xs text-slate-600">سيتم إضافة 15% تلقائياً إلى الإجمالي</div>
+                <div className="text-sm font-bold text-slate-900">{t('invoiceForm.vatLabel')}</div>
+                <div className="mt-0.5 text-xs text-slate-600">{t('invoiceForm.vatHint')}</div>
               </div>
             </label>
           </div>
 
           <div className="sm:col-span-2">
-            <Label>الإجمالي (محسوب تلقائياً)</Label>
+            <Label>{t('invoiceForm.total')}</Label>
             <Input value={Number.isFinite(total) ? total.toFixed(2) : '0.00'} readOnly />
           </div>
 
           <div className="sm:col-span-2 flex gap-3 pt-2">
             <Button variant="gold" className="flex-1" type="submit" disabled={busy}>
-              {busy ? 'جاري الحفظ...' : 'حفظ'}
+              {busy ? t('invoiceForm.saving') : t('invoiceForm.save')}
             </Button>
             <Button variant="subtle" className="flex-1" type="button" onClick={onCancel} disabled={busy}>
-              إلغاء
+              {t('invoiceForm.cancel')}
             </Button>
           </div>
         </form>
@@ -126,4 +130,3 @@ export default function InvoiceForm({ initialValue, contracts, busy, onSubmit, o
     </>
   )
 }
-

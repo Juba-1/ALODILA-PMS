@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { AdvancedFilterBar } from '../../components/AdvancedFilterBar'
 import { ExportButton } from '../../components/ExportButton'
@@ -13,7 +14,9 @@ import { getActiveProperties } from '../../lib/db/properties'
 import { getTenants } from '../../lib/db/tenants'
 import { getActiveUnits } from '../../lib/db/units'
 import { createContract, getContracts, softDeleteContract, updateContract } from '../../lib/db/contracts'
+import { generateInstallmentsForContract } from '../../lib/db/contractFinance'
 import { reportLoadFailure } from '../../lib/supabase/authErrors'
+import { translateContractStatus, translateUtilityPayment } from '../../lib/i18n/domainLabels'
 import ContractForm from './ContractForm'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { exportReportPdf } from '../../lib/print/targetedPdf'
@@ -29,7 +32,9 @@ function badge(status) {
 }
 
 export default function ContractsList() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language?.startsWith('en') ? 'en' : 'ar'
+  const dir = lang === 'en' ? 'ltr' : 'rtl'
   const { push: toastPush } = useToastDispatch()
   const [items, setItems] = useState([])
   const [busy, setBusy] = useState(true)
@@ -57,7 +62,7 @@ export default function ContractsList() {
       const data = await getContracts()
       setItems(data)
     } catch (e) {
-      reportLoadFailure(toastPush, e, 'تعذر تحميل العقود', true)
+      reportLoadFailure(toastPush, e, t('contractsList.toastLoadFail'), true)
     } finally {
       setBusy(false)
     }
@@ -66,12 +71,12 @@ export default function ContractsList() {
   async function refreshRefs() {
     setRefsBusy(true)
     try {
-      const [t, u, p] = await Promise.all([getTenants(), getActiveUnits(), getActiveProperties()])
-      setTenants(t)
+      const [tn, u, p] = await Promise.all([getTenants(), getActiveUnits(), getActiveProperties()])
+      setTenants(tn)
       setUnits(u)
       setProperties(p)
     } catch (e) {
-      reportLoadFailure(toastPush, e, 'تعذر تحميل البيانات المرتبطة', true)
+      reportLoadFailure(toastPush, e, t('contractsList.toastRefFail'), true)
     } finally {
       setRefsBusy(false)
     }
@@ -100,20 +105,19 @@ export default function ContractsList() {
 
   const exportRows = useMemo(() => {
     return filtered.map((c) => ({
-      'رقم عقد إيجار': c.ejar_contract_number || '',
-      العقار: c.property_name || '',
-      المستأجر: c.tenant_full_name || '',
-      الوحدة: c.unit_name || '',
-      البداية: c.start_date,
-      النهاية: c.end_date,
-      'قيمة العقد': c.contract_value,
-      'خدمات (نوع الدفع)': c.utility_payment_type || 'مستقل',
-      'خدمات مقطوع (ر.س)': c.utility_payment_type === 'مقطوع' ? c.utility_flat_amount_sar ?? '' : '',
-      'ملاحظات الاستلام': c.handover_notes || '',
-      الحالة: c.status,
+      [t('contractsList.colEjar')]: c.ejar_contract_number || '',
+      [t('common.property')]: c.property_name || '',
+      [t('common.tenant')]: c.tenant_full_name || '',
+      [t('common.unit')]: c.unit_name || '',
+      [t('contractsList.colStart')]: c.start_date,
+      [t('contractsList.colEnd')]: c.end_date,
+      [t('contractsList.colContractValueShort')]: c.contract_value,
+      [t('contractsList.colUtilityPayType')]: translateUtilityPayment(c.utility_payment_type || 'مستقل', lang),
+      [t('contractsList.colUtilityFlat')]: c.utility_payment_type === 'مقطوع' ? c.utility_flat_amount_sar ?? '' : '',
+      [t('contractsList.colHandoverNotes')]: c.handover_notes || '',
+      [t('common.status')]: translateContractStatus(c.status, lang),
     }))
-  }, [filtered])
-  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
+  }, [filtered, t, lang])
 
   function openCreate() {
     setEditing(null)
@@ -131,63 +135,88 @@ export default function ContractsList() {
 
   async function onSave(values) {
     if (!values.tenant_id || !values.unit_id || !values.start_date || !values.end_date) {
-      toastPush({ type: 'error', title: 'تحقق من المدخلات', message: 'يرجى تعبئة الحقول الإلزامية.' })
+      toastPush({ type: 'error', title: t('contractsList.toastValidationTitle'), message: t('contractsList.toastValidationFields') })
       return
     }
 
     const contractValue = Number(values.contract_value)
     const deposit = Number(values.deposit ?? 0)
     if (!Number.isFinite(contractValue) || contractValue < 0 || !Number.isFinite(deposit) || deposit < 0) {
-      toastPush({ type: 'error', title: 'تحقق من المدخلات', message: 'قيمة العقد/التأمين يجب أن تكون أرقامًا صحيحة.' })
+      toastPush({
+        type: 'error',
+        title: t('contractsList.toastValidationTitle'),
+        message: t('contractsList.toastValidationNumbers'),
+      })
       return
     }
 
     const uid = values.unit_id
     const excludeId = editing?.id
     const unitBlocked = items.some(
-      (c) =>
-        c.status === 'ساري' &&
-        c.id !== excludeId &&
-        String(c.unit_id || c?.unit?.id || '') === String(uid),
+      (c) => c.status === 'ساري' && c.id !== excludeId && String(c.unit_id || c?.unit?.id || '') === String(uid),
     )
     if (values.status === 'ساري' && unitBlocked) {
       toastPush({
         type: 'error',
-        title: 'تعارض على الوحدة',
-        message: 'لا يمكن حفظ عقد ساري على وحدة عليها عقد ساري آخر. اختر وحدة شاغرة أو غيّر الحالة.',
+        title: t('contractsList.toastUnitClashTitle'),
+        message: t('contractsList.toastUnitClashMsg'),
       })
       return
     }
+
+    const schedulePrefs = values?._schedule || { auto: false, vat_applicable: false }
 
     setSaving(true)
     try {
       if (editing?.id) {
         const updated = await updateContract(editing.id, values)
         setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-        toastPush({ type: 'success', title: 'تم التحديث', message: 'تم تحديث العقد بنجاح.' })
+        toastPush({ type: 'success', title: t('contractsList.toastUpdatedTitle'), message: t('contractsList.toastUpdatedMsg') })
       } else {
         const created = await createContract(values)
         setItems((prev) => [created, ...prev])
-        toastPush({ type: 'success', title: 'تم الإنشاء', message: 'تم إنشاء العقد بنجاح.' })
+        toastPush({ type: 'success', title: t('contractsList.toastCreatedTitle'), message: t('contractsList.toastCreatedMsg') })
+        if (schedulePrefs.auto && created?.id) {
+          try {
+            const gen = await generateInstallmentsForContract(created, {
+              vat_applicable: schedulePrefs.vat_applicable === true,
+              replaceExisting: false,
+            })
+            if (gen.count > 0) {
+              toastPush({
+                type: 'success',
+                title: t('contractsList.toastScheduleOk'),
+                message: t('contractsList.toastScheduleOkMsg', { count: gen.count }),
+              })
+            }
+          } catch (schedErr) {
+            console.warn('[ContractsList] auto-schedule failed', schedErr)
+            toastPush({
+              type: 'error',
+              title: t('contractsList.toastScheduleFailTitle'),
+              message: schedErr?.message || t('contractsList.toastScheduleFailMsg'),
+            })
+          }
+        }
       }
       setOpen(false)
       setEditing(null)
     } catch (e) {
-      reportLoadFailure(toastPush, e, 'فشل الحفظ', true)
+      reportLoadFailure(toastPush, e, t('contractsList.toastSaveFail'), true)
     } finally {
       setSaving(false)
     }
   }
 
   async function onDelete(id) {
-    const ok = window.confirm('هل تريد إخفاء هذا العقد؟')
+    const ok = window.confirm(t('contractsList.confirmHide'))
     if (!ok) return
     try {
       await softDeleteContract(id)
       setItems((prev) => prev.filter((x) => x.id !== id))
-      toastPush({ type: 'success', title: 'تم الإخفاء', message: 'تم إخفاء العقد بنجاح.' })
+      toastPush({ type: 'success', title: t('contractsList.toastHiddenTitle'), message: t('contractsList.toastHiddenMsg') })
     } catch (e) {
-      reportLoadFailure(toastPush, e, 'فشل الإخفاء', true)
+      reportLoadFailure(toastPush, e, t('contractsList.toastHideFailTitle'), true)
     }
   }
 
@@ -197,23 +226,22 @@ export default function ContractsList() {
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <CardTitle>العقود</CardTitle>
-              <CardDescription>ربط الوحدات بالمستأجرين وإدارة دورات الدفع والحالة</CardDescription>
+              <CardTitle>{t('contractsList.pageTitle')}</CardTitle>
+              <CardDescription>{t('contractsList.pageDesc')}</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <ExportButton rows={exportRows} filename="تصدير-العقود" disabled={busy} />
-              <ExportButton rows={exportRows} filename="تصدير-العقود" format="csv" disabled={busy} />
+              <ExportButton rows={exportRows} filename={t('contractsList.exportFilename')} disabled={busy} />
+              <ExportButton rows={exportRows} filename={t('contractsList.exportFilename')} format="csv" disabled={busy} />
               <TargetedPdfButton
-                label="طباعة / PDF"
                 disabled={busy}
                 onClick={() =>
                   exportReportPdf({
-                    title: dir === 'ltr' ? 'Leases' : 'العقود',
-                    subtitle: dir === 'ltr' ? 'Lease list export' : 'تصدير قائمة العقود',
+                    title: t('contractsList.pdfTitle'),
+                    subtitle: t('contractsList.pdfSubtitle'),
                     filename: 'contracts',
                     metaLines: [
-                      `${dir === 'ltr' ? 'Date' : 'التاريخ'}: ${new Date().toISOString().slice(0, 10)}`,
-                      `${dir === 'ltr' ? 'Rows' : 'عدد الصفوف'}: ${exportRows.length}`,
+                      `${t('common.date')}: ${new Date().toISOString().slice(0, 10)}`,
+                      `${t('contractsList.pdfRowsLabel')}: ${exportRows.length}`,
                     ],
                     rows: exportRows,
                     dir,
@@ -221,7 +249,7 @@ export default function ContractsList() {
                 }
               />
               <Button variant="gold" onClick={openCreate} disabled={refsBusy}>
-                إنشاء عقد
+                {t('contractsList.newContract')}
               </Button>
             </div>
           </div>
@@ -229,21 +257,21 @@ export default function ContractsList() {
         <CardContent>
           <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="sm:col-span-2">
-              <Label>بحث</Label>
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث برقم عقد إيجار/المستأجر/الوحدة..." />
+              <Label>{t('common.search')}</Label>
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('contractsList.searchPlaceholder')} />
             </div>
             <div className="flex items-end">
               <div className="w-full rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
-                الإجمالي: <span className="font-bold text-slate-900">{filtered.length}</span>
+                {t('contractsList.totalLabel')}: <span className="font-bold text-slate-900">{filtered.length}</span>
               </div>
             </div>
           </div>
 
           <AdvancedFilterBar>
             <div>
-              <Label>العقار</Label>
+              <Label>{t('common.property')}</Label>
               <Select value={filterPropertyId} onChange={(e) => setFilterPropertyId(e.target.value)}>
-                <option value="">كل العقارات</option>
+                <option value="">{t('reports.filterAllProperties')}</option>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -252,30 +280,30 @@ export default function ContractsList() {
               </Select>
             </div>
             <div>
-              <Label>حالة العقد</Label>
+              <Label>{t('common.status')}</Label>
               <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-                <option value="">كل الحالات</option>
+                <option value="">{t('contractsList.allStatuses')}</option>
                 {CONTRACT_STATUSES.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {translateContractStatus(s, lang)}
                   </option>
                 ))}
               </Select>
             </div>
             <div>
-              <Label>بداية العقد من</Label>
+              <Label>{t('contractsList.colStartFrom')}</Label>
               <Input type="date" value={startFrom} onChange={(e) => setStartFrom(e.target.value)} />
             </div>
             <div>
-              <Label>بداية العقد إلى</Label>
+              <Label>{t('contractsList.colStartTo')}</Label>
               <Input type="date" value={startTo} onChange={(e) => setStartTo(e.target.value)} />
             </div>
             <div>
-              <Label>نهاية العقد من</Label>
+              <Label>{t('contractsList.colEndFrom')}</Label>
               <Input type="date" value={endFrom} onChange={(e) => setEndFrom(e.target.value)} />
             </div>
             <div>
-              <Label>نهاية العقد إلى</Label>
+              <Label>{t('contractsList.colEndTo')}</Label>
               <Input type="date" value={endTo} onChange={(e) => setEndTo(e.target.value)} />
             </div>
           </AdvancedFilterBar>
@@ -284,17 +312,17 @@ export default function ContractsList() {
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-slate-50">
-                  <tr className="text-right text-xs font-bold text-slate-600">
-                    <th className="px-4 py-3">رقم عقد إيجار</th>
-                    <th className="px-4 py-3">العقار</th>
-                    <th className="px-4 py-3">المستأجر</th>
-                    <th className="px-4 py-3">الوحدة</th>
-                    <th className="px-4 py-3">البداية</th>
-                    <th className="px-4 py-3">النهاية</th>
-                    <th className="px-4 py-3">قيمة العقد</th>
-                    <th className="px-4 py-3">الخدمات</th>
-                    <th className="px-4 py-3">الحالة</th>
-                    <th className="px-4 py-3">إجراءات</th>
+                  <tr className="text-start text-xs font-bold text-slate-600">
+                    <th className="px-4 py-3">{t('contractsList.colEjar')}</th>
+                    <th className="px-4 py-3">{t('common.property')}</th>
+                    <th className="px-4 py-3">{t('common.tenant')}</th>
+                    <th className="px-4 py-3">{t('common.unit')}</th>
+                    <th className="px-4 py-3">{t('contractsList.colStart')}</th>
+                    <th className="px-4 py-3">{t('contractsList.colEnd')}</th>
+                    <th className="px-4 py-3">{t('contractsList.colContractValue')}</th>
+                    <th className="px-4 py-3">{t('contractsList.colServices')}</th>
+                    <th className="px-4 py-3">{t('common.status')}</th>
+                    <th className="px-4 py-3">{t('contractsList.colActions')}</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white">
@@ -313,12 +341,8 @@ export default function ContractsList() {
                       <td colSpan={10} className="p-6">
                         <EmptyState
                           icon="📄"
-                          title={items.length === 0 ? 'لا توجد عقود بعد' : 'لا توجد عقود مطابقة للمرشحات'}
-                          description={
-                            items.length === 0
-                              ? 'أنشئ عقداً لربط وحدة بمستأجر وإصدار الفواتير لاحقاً.'
-                              : 'عدّل البحث أو امسح مرشحات التاريخ والعقار لعرض المزيد.'
-                          }
+                          title={items.length === 0 ? t('contractsList.emptyTitle') : t('contractsList.emptyTitleFiltered')}
+                          description={items.length === 0 ? t('contractsList.emptyDesc') : t('contractsList.emptyDescFiltered')}
                         />
                       </td>
                     </tr>
@@ -333,23 +357,31 @@ export default function ContractsList() {
                         <td className="px-4 py-3 text-slate-700">{c.end_date}</td>
                         <td className="px-4 py-3 text-slate-700">{c.contract_value}</td>
                         <td className="px-4 py-3 text-slate-700">
-                          <span className="font-semibold">{c.utility_payment_type || 'مستقل'}</span>
+                          <span className="font-semibold">{translateUtilityPayment(c.utility_payment_type || 'مستقل', lang)}</span>
                           {c.utility_payment_type === 'مقطوع' && c.utility_flat_amount_sar != null ? (
-                            <span className="ms-1 text-xs text-slate-500"> (+{c.utility_flat_amount_sar} ر.س)</span>
+                            <span className="ms-1 text-xs text-slate-500">
+                              {' '}
+                              (+{c.utility_flat_amount_sar} {t('common.currencySar')})
+                            </span>
                           ) : null}
                         </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${badge(c.status)}`}>
-                            {c.status}
+                            {translateContractStatus(c.status, lang)}
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
+                            <Link to={`/contracts/${c.id}`}>
+                              <Button variant="gold" size="sm">
+                                {t('contractsList.actionDetails')}
+                              </Button>
+                            </Link>
                             <Button variant="subtle" size="sm" onClick={() => openEdit(c)} disabled={refsBusy}>
-                              تعديل
+                              {t('contractsList.actionEdit')}
                             </Button>
                             <Button variant="ghost" size="sm" onClick={() => onDelete(c.id)}>
-                              إخفاء
+                              {t('contractsList.actionHide')}
                             </Button>
                           </div>
                         </td>
@@ -363,7 +395,7 @@ export default function ContractsList() {
         </CardContent>
       </Card>
 
-      <Modal open={open} onClose={() => (saving ? null : setOpen(false))} title="عقد إيجار">
+      <Modal open={open} onClose={() => (saving ? null : setOpen(false))} title={t('contractsList.modalTitle')}>
         <ContractForm
           key={editing?.id || 'create'}
           initialValue={editing}
@@ -378,4 +410,3 @@ export default function ContractsList() {
     </div>
   )
 }
-

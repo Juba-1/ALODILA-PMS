@@ -12,21 +12,22 @@ import { getActiveProperties, softDeleteProperty } from '../../lib/db/properties
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
 import { exportReportPdf } from '../../lib/print/targetedPdf'
 
-function typeLabel(t) {
-  if (t === 'Residential') return 'سكني'
-  if (t === 'Commercial') return 'تجاري'
-  if (t === 'Mixed') return 'مختلط'
-  return t
-}
-
 export default function PropertiesList() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
   const { push } = useToastDispatch()
   const [items, setItems] = useState([])
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState(null)
   const [q, setQ] = useState('')
   const [deletingId, setDeletingId] = useState(null)
+
+  const typeLabel = (raw) => {
+    if (raw === 'Residential') return t('propertiesList.typeResidential')
+    if (raw === 'Commercial') return t('propertiesList.typeCommercial')
+    if (raw === 'Mixed') return t('propertiesList.typeMixed')
+    return raw || ''
+  }
 
   useEffect(() => {
     let mounted = true
@@ -38,7 +39,7 @@ export default function PropertiesList() {
         if (mounted) setItems(data)
       } catch (e) {
         if (mounted && !isIgnorableAuthLockError(e)) {
-          setError(e?.message || 'حدث خطأ.')
+          setError(e?.message || t('errors.generic'))
         }
       } finally {
         if (mounted) setBusy(false)
@@ -47,10 +48,11 @@ export default function PropertiesList() {
     return () => {
       mounted = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function onSoftDelete(id) {
-    const ok = window.confirm('هل تريد إخفاء هذا العقار؟')
+    const ok = window.confirm(t('propertiesList.confirmHide'))
     if (!ok) return
 
     setError(null)
@@ -58,12 +60,12 @@ export default function PropertiesList() {
     try {
       await softDeleteProperty(id)
       setItems((prev) => prev.filter((p) => p.id !== id))
-      push({ type: 'success', title: 'تم الإخفاء', message: 'تم إخفاء العقار بنجاح.' })
+      push({ type: 'success', title: t('propertiesList.toastHiddenTitle'), message: t('propertiesList.toastHiddenMsg') })
     } catch (e) {
       if (!isIgnorableAuthLockError(e)) {
-        setError(e?.message || 'فشل حذف/إخفاء العقار.')
+        setError(e?.message || t('propertiesList.toastDeleteFail'))
       }
-      reportLoadFailure(push, e, 'فشل الإخفاء', true)
+      reportLoadFailure(push, e, t('propertiesList.toastHideFail'), true)
     } finally {
       setDeletingId(null)
     }
@@ -76,15 +78,15 @@ export default function PropertiesList() {
 
   const exportRows = useMemo(() => {
     return filtered.map((p) => ({
-      الاسم: p.name,
-      التصنيف: p.category,
-      النوع: typeLabel(p.type),
-      'رقم الصك': p.deed_number || '',
-      الخريطة: p.maps_link || '',
-      السعة: p.total_units_capacity,
+      [t('propertiesList.colName')]: p.name,
+      [t('propertiesList.colCategory')]: p.category,
+      [t('propertiesList.colType')]: typeLabel(p.type),
+      [t('propertiesList.colDeed')]: p.deed_number || '',
+      [t('propertiesList.colMap')]: p.maps_link || '',
+      [t('propertiesList.colCapacity')]: p.total_units_capacity,
     }))
-  }, [filtered])
-  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, i18n.language])
 
   return (
     <div className="max-w-7xl">
@@ -92,23 +94,22 @@ export default function PropertiesList() {
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <CardTitle>العقارات</CardTitle>
-              <CardDescription>قائمة العقارات النشطة</CardDescription>
+              <CardTitle>{t('propertiesList.pageTitle')}</CardTitle>
+              <CardDescription>{t('propertiesList.pageDesc')}</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
-              <ExportButton rows={exportRows} filename="تصدير-العقارات" disabled={busy} />
-              <ExportButton rows={exportRows} filename="تصدير-العقارات" format="csv" disabled={busy} />
+              <ExportButton rows={exportRows} filename={t('propertiesList.exportFilename')} disabled={busy} />
+              <ExportButton rows={exportRows} filename={t('propertiesList.exportFilename')} format="csv" disabled={busy} />
               <TargetedPdfButton
-                label="طباعة / PDF"
                 disabled={busy}
                 onClick={() =>
                   exportReportPdf({
-                    title: dir === 'ltr' ? 'Properties' : 'العقارات',
-                    subtitle: dir === 'ltr' ? 'Active properties list' : 'قائمة العقارات النشطة',
+                    title: t('propertiesList.pdfTitle'),
+                    subtitle: t('propertiesList.pdfSubtitle'),
                     filename: 'properties',
                     metaLines: [
-                      `${dir === 'ltr' ? 'Date' : 'التاريخ'}: ${new Date().toISOString().slice(0, 10)}`,
-                      `${dir === 'ltr' ? 'Rows' : 'عدد الصفوف'}: ${exportRows.length}`,
+                      `${t('common.date')}: ${new Date().toISOString().slice(0, 10)}`,
+                      `${t('contractsList.pdfRowsLabel')}: ${exportRows.length}`,
                     ],
                     rows: exportRows,
                     dir,
@@ -116,7 +117,7 @@ export default function PropertiesList() {
                 }
               />
               <Link to="/properties/new">
-                <Button variant="gold">إضافة عقار</Button>
+                <Button variant="gold">{t('propertiesList.newProperty')}</Button>
               </Link>
             </div>
           </div>
@@ -124,12 +125,12 @@ export default function PropertiesList() {
         <CardContent>
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="sm:col-span-2">
-              <Label>بحث</Label>
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث بالاسم/النوع/رقم الصك..." />
+              <Label>{t('propertiesList.searchLabel')}</Label>
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('propertiesList.searchPlaceholder')} />
             </div>
             <div className="flex items-end">
               <div className="w-full rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
-                الإجمالي: <span className="font-bold text-slate-900">{filtered.length}</span>
+                {t('propertiesList.totalLabel')}: <span className="font-bold text-slate-900">{filtered.length}</span>
               </div>
             </div>
           </div>
@@ -142,41 +143,25 @@ export default function PropertiesList() {
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-slate-50">
-                  <tr className="text-right text-xs font-bold text-slate-600">
-                    <th className="px-4 py-3">الاسم</th>
-                    <th className="px-4 py-3">التصنيف</th>
-                    <th className="px-4 py-3">النوع</th>
-                    <th className="px-4 py-3">رقم الصك</th>
-                    <th className="px-4 py-3">الخريطة</th>
-                    <th className="px-4 py-3">السعة</th>
-                    <th className="px-4 py-3">إجراءات</th>
+                  <tr className="text-start text-xs font-bold text-slate-600">
+                    <th className="px-4 py-3">{t('propertiesList.colName')}</th>
+                    <th className="px-4 py-3">{t('propertiesList.colCategory')}</th>
+                    <th className="px-4 py-3">{t('propertiesList.colType')}</th>
+                    <th className="px-4 py-3">{t('propertiesList.colDeed')}</th>
+                    <th className="px-4 py-3">{t('propertiesList.colMap')}</th>
+                    <th className="px-4 py-3">{t('propertiesList.colCapacity')}</th>
+                    <th className="px-4 py-3">{t('propertiesList.colActions')}</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white">
                   {busy ? (
                     Array.from({ length: 6 }).map((_, i) => (
                       <tr key={i} className="border-t border-slate-100">
-                        <td className="px-4 py-3">
-                          <div className="h-4 w-40 animate-pulse rounded bg-slate-100" />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="h-4 w-24 animate-pulse rounded bg-slate-100" />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="h-4 w-24 animate-pulse rounded bg-slate-100" />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="h-4 w-24 animate-pulse rounded bg-slate-100" />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="h-4 w-20 animate-pulse rounded bg-slate-100" />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="h-4 w-12 animate-pulse rounded bg-slate-100" />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="h-8 w-20 animate-pulse rounded bg-slate-100" />
-                        </td>
+                        {Array.from({ length: 7 }).map((__, j) => (
+                          <td key={j} className="px-4 py-3">
+                            <div className="h-4 w-full max-w-[8rem] animate-pulse rounded bg-slate-100" />
+                          </td>
+                        ))}
                       </tr>
                     ))
                   ) : filtered.length === 0 ? (
@@ -184,12 +169,8 @@ export default function PropertiesList() {
                       <td colSpan={7} className="p-6">
                         <EmptyState
                           icon="🏢"
-                          title={items.length === 0 ? 'لا توجد عقارات بعد' : 'لا توجد عقارات مطابقة'}
-                          description={
-                            items.length === 0
-                              ? 'ابدأ بإضافة عقار لتعريف الوحدات والعقود لاحقاً.'
-                              : 'جرّب تعديل البحث أو امسح الحقل لعرض كل العقارات.'
-                          }
+                          title={items.length === 0 ? t('propertiesList.emptyTitle') : t('propertiesList.emptyTitleFiltered')}
+                          description={items.length === 0 ? t('propertiesList.emptyDesc') : t('propertiesList.emptyDescFiltered')}
                         />
                       </td>
                     </tr>
@@ -211,7 +192,7 @@ export default function PropertiesList() {
                         <td className="px-4 py-3">
                           {p.maps_link ? (
                             <a href={p.maps_link} target="_blank" rel="noreferrer" className="font-semibold text-slate-900 hover:underline">
-                              فتح الرابط
+                              {t('propertiesList.openMap')}
                             </a>
                           ) : (
                             <span className="text-slate-400">-</span>
@@ -222,7 +203,7 @@ export default function PropertiesList() {
                           <div className="flex flex-wrap gap-2">
                             <Link to={`/properties/${p.id}`}>
                               <Button variant="subtle" size="sm" type="button">
-                                تعديل
+                                {t('propertiesList.editAction')}
                               </Button>
                             </Link>
                             <Button
@@ -232,7 +213,7 @@ export default function PropertiesList() {
                               disabled={deletingId !== null && deletingId !== p.id}
                               onClick={() => onSoftDelete(p.id)}
                             >
-                              إخفاء
+                              {t('propertiesList.hideAction')}
                             </Button>
                           </div>
                         </td>
@@ -248,4 +229,3 @@ export default function PropertiesList() {
     </div>
   )
 }
-

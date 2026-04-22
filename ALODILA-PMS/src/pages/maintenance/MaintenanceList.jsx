@@ -276,7 +276,7 @@ export default function MaintenanceList() {
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-slate-50">
-                  <tr className="text-right text-xs font-bold text-slate-600">
+                  <tr className="text-start text-xs font-bold text-slate-600">
                     <th className="px-4 py-3">{t('maintenanceAdmin.requestIdCol')}</th>
                     <th className="px-4 py-3">{t('common.property')}</th>
                     <th className="px-4 py-3">{t('common.unit')}</th>

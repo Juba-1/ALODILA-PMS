@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Input, Label } from '../../components/ui/Input'
@@ -10,21 +11,19 @@ import { useToastDispatch } from '../../components/toast/ToastProvider'
 import { createOwner, getOwners } from '../../lib/db/owners'
 import { createProperty } from '../../lib/db/properties'
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
+import { translatePropertyCategory, translatePropertyType } from '../../lib/i18n/domainLabels'
 
 const TYPES = ['Residential', 'Commercial', 'Mixed']
 const CATEGORIES = ['عمارة', 'مجمع سكني', 'فيلا', 'دوبلكس', 'مستودع', 'معرض', 'أرض', 'مبنى تجاري']
 
-function typeLabel(t) {
-  if (t === 'Residential') return 'سكني'
-  if (t === 'Commercial') return 'تجاري'
-  if (t === 'Mixed') return 'مختلط'
-  return t
-}
-
 export default function PropertyCreate() {
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language?.startsWith('en') ? 'en' : 'ar'
   const navigate = useNavigate()
   const { push } = useToastDispatch()
   const toastPush = useCallback((payload) => push(payload), [push])
+  const tRef = useRef(t)
+  tRef.current = t
   const [busy, setBusy] = useState(false)
 
   const [name, setName] = useState('')
@@ -46,7 +45,7 @@ export default function PropertyCreate() {
   const [quickPhone, setQuickPhone] = useState('')
   const [ownerQuickSaving, setOwnerQuickSaving] = useState(false)
 
-  const title = useMemo(() => 'إنشاء عقار جديد', [])
+  const title = useMemo(() => t('propertyCreate.title'), [t])
 
   useEffect(() => {
     let cancelled = false
@@ -57,7 +56,7 @@ export default function PropertyCreate() {
         if (!cancelled) setOwners(list)
       } catch (e) {
         if (!cancelled && !isIgnorableAuthLockError(e)) {
-          reportLoadFailure(toastPush, e, 'تعذر تحميل الملاك', true)
+          reportLoadFailure(toastPush, e, tRef.current('propertyCreate.toastLoadOwnersFail'), true)
         }
       } finally {
         if (!cancelled) setOwnersBusy(false)
@@ -68,12 +67,17 @@ export default function PropertyCreate() {
     }
   }, [toastPush])
 
+  const categoryOptions = useMemo(
+    () => CATEGORIES.map((c) => ({ value: c, label: translatePropertyCategory(c, lang) || c })),
+    [lang]
+  )
+
   const ownerOptions = useMemo(() => {
     return (owners || []).map((o) => ({
       value: o.id,
-      label: `${o.full_name || 'مالك'} — ${o.national_id || ''}`,
+      label: `${o.full_name || t('propertyCreate.ownerFallback')} — ${o.national_id || ''}`,
     }))
-  }, [owners])
+  }, [owners, t])
 
   async function onQuickCreateOwner(e) {
     e.preventDefault()
@@ -81,7 +85,7 @@ export default function PropertyCreate() {
     const nat = String(quickNational || '').trim()
     const ph = String(quickPhone || '').trim()
     if (!nm || !nat || !ph) {
-      push({ type: 'error', title: 'تحقق من المدخلات', message: 'يرجى تعبئة الاسم والهوية والجوال.' })
+      push({ type: 'error', title: t('propertyCreate.toastInvalidInputTitle'), message: t('propertyCreate.toastInvalidOwnerMsg') })
       return
     }
     setOwnerQuickSaving(true)
@@ -93,9 +97,9 @@ export default function PropertyCreate() {
       setQuickOwnerName('')
       setQuickNational('')
       setQuickPhone('')
-      push({ type: 'success', title: 'تمت الإضافة', message: 'تم إضافة المالك إلى CRM.' })
+      push({ type: 'success', title: t('propertyCreate.toastAddedTitle'), message: t('propertyCreate.toastOwnerAddedMsg') })
     } catch (err) {
-      reportLoadFailure(toastPush, err, 'فشل إضافة المالك', true)
+      reportLoadFailure(toastPush, err, t('propertyCreate.toastOwnerFail'), true)
     } finally {
       setOwnerQuickSaving(false)
     }
@@ -108,11 +112,11 @@ export default function PropertyCreate() {
     const ec = Number(electricityMeterCount)
     const wc = Number(waterMeterCount)
     if (!Number.isFinite(capacityNum) || capacityNum < 0) {
-      push({ type: 'error', title: 'تحقق من المدخلات', message: 'يرجى إدخال قيمة صحيحة للسعة الإجمالية للوحدات.' })
+      push({ type: 'error', title: t('propertyCreate.toastInvalidInputTitle'), message: t('propertyCreate.toastCapacityInvalid') })
       return
     }
     if (!Number.isFinite(ec) || ec < 0 || !Number.isFinite(wc) || wc < 0) {
-      push({ type: 'error', title: 'تحقق من المدخلات', message: 'عدد العدادات يجب أن يكون رقمًا صحيحًا (0 أو أكثر).' })
+      push({ type: 'error', title: t('propertyCreate.toastInvalidInputTitle'), message: t('propertyCreate.toastMetersInvalid') })
       return
     }
 
@@ -130,10 +134,10 @@ export default function PropertyCreate() {
         owner_crm_id: String(ownerCrmId || '').trim() || null,
         management_start_date: managementStartDate || null,
       })
-      push({ type: 'success', title: 'تم إنشاء العقار بنجاح' })
+      push({ type: 'success', title: t('propertyCreate.toastPropertyCreated') })
       navigate('/properties', { replace: true })
     } catch (err) {
-      reportLoadFailure(toastPush, err, 'فشل إنشاء العقار', true)
+      reportLoadFailure(toastPush, err, t('propertyCreate.toastPropertyFail'), true)
     } finally {
       setBusy(false)
     }
@@ -144,39 +148,39 @@ export default function PropertyCreate() {
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
-          <CardDescription>مطابق لقاموس البيانات في PRD v2 (بدون أي حقول إضافية)</CardDescription>
+          <CardDescription>{t('propertyCreate.desc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <Label>اسم العقار (إلزامي)</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="مثال: برج العضيلة" />
+              <Label>{t('propertyCreate.nameLabel')}</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder={t('propertyCreate.namePh')} />
             </div>
 
             <div className="sm:col-span-2">
               <Combobox
-                label="تصنيف العقار (إلزامي)"
+                label={t('propertyCreate.categoryLabel')}
                 value={category}
                 onChange={setCategory}
-                options={CATEGORIES}
-                placeholder="ابحث عن التصنيف..."
+                options={categoryOptions}
+                placeholder={t('propertyCreate.categoryPh')}
                 required
               />
             </div>
 
             <div>
-              <Label>نوع العقار</Label>
+              <Label>{t('propertyCreate.typeLabel')}</Label>
               <Select value={type} onChange={(e) => setType(e.target.value)} required>
-                {TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {typeLabel(t)}
+                {TYPES.map((tp) => (
+                  <option key={tp} value={tp}>
+                    {translatePropertyType(tp, lang)}
                   </option>
                 ))}
               </Select>
             </div>
 
             <div>
-              <Label>السعة الإجمالية للوحدات (إلزامي)</Label>
+              <Label>{t('propertyCreate.capacityLabel')}</Label>
               <Input
                 value={totalUnitsCapacity}
                 onChange={(e) => setTotalUnitsCapacity(e.target.value)}
@@ -185,12 +189,12 @@ export default function PropertyCreate() {
                 type="number"
                 min={0}
                 step={1}
-                placeholder="مثال: 24"
+                placeholder={t('propertyCreate.capacityPh')}
               />
             </div>
 
             <div>
-              <Label>عدادات الكهرباء — العدد (اتفاقية)</Label>
+              <Label>{t('propertyCreate.electricityMeters')}</Label>
               <Input
                 value={electricityMeterCount}
                 onChange={(e) => setElectricityMeterCount(e.target.value)}
@@ -201,30 +205,30 @@ export default function PropertyCreate() {
               />
             </div>
             <div>
-              <Label>عدادات المياه — العدد (اتفاقية)</Label>
+              <Label>{t('propertyCreate.waterMeters')}</Label>
               <Input value={waterMeterCount} onChange={(e) => setWaterMeterCount(e.target.value)} type="number" min={0} step={1} required />
             </div>
 
             <div>
-              <Label>رقم الصك (اختياري)</Label>
-              <Input value={deedNumber} onChange={(e) => setDeedNumber(e.target.value)} placeholder="مثال: 1234567890" />
+              <Label>{t('propertyCreate.deedLabel')}</Label>
+              <Input value={deedNumber} onChange={(e) => setDeedNumber(e.target.value)} placeholder={t('propertyCreate.deedPh')} />
             </div>
 
             <div>
-              <Label>رابط خرائط Google (اختياري)</Label>
+              <Label>{t('propertyCreate.mapsLabel')}</Label>
               <Input
                 value={mapsLink}
                 onChange={(e) => setMapsLink(e.target.value)}
                 type="url"
-                placeholder="https://maps.google.com/..."
+                placeholder={t('propertyCreate.mapsPh')}
               />
             </div>
 
             <div className="sm:col-span-2">
               <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-                <Label className="mb-0">مالك العقار (CRM) — اختياري</Label>
+                <Label className="mb-0">{t('propertyCreate.ownerLabel')}</Label>
                 <Button type="button" variant="subtle" size="sm" onClick={() => setShowOwnerQuick(true)} disabled={ownersBusy}>
-                  إضافة مالك سريع
+                  {t('propertyCreate.ownerQuickAdd')}
                 </Button>
               </div>
               <Combobox
@@ -232,21 +236,21 @@ export default function PropertyCreate() {
                 value={ownerCrmId}
                 onChange={(v) => setOwnerCrmId(String(v || ''))}
                 options={ownerOptions}
-                placeholder="ابحث بالاسم أو رقم الهوية..."
+                placeholder={t('propertyCreate.ownerPh')}
               />
             </div>
 
             <div>
-              <Label>تاريخ بداية الإدارة (اختياري)</Label>
+              <Label>{t('propertyCreate.managementStartLabel')}</Label>
               <Input value={managementStartDate} onChange={(e) => setManagementStartDate(e.target.value)} type="date" />
             </div>
 
             <div className="sm:col-span-2 mt-2 flex gap-3">
               <Button variant="gold" type="submit" disabled={busy} className="flex-1">
-                {busy ? 'جاري الحفظ...' : 'حفظ'}
+                {busy ? t('propertyCreate.saving') : t('propertyCreate.save')}
               </Button>
               <Button variant="subtle" type="button" onClick={() => navigate('/properties')} className="flex-1">
-                رجوع
+                {t('propertyCreate.back')}
               </Button>
             </div>
           </form>
@@ -255,29 +259,29 @@ export default function PropertyCreate() {
 
       <Modal open={showOwnerQuick} onClose={() => (ownerQuickSaving ? null : setShowOwnerQuick(false))}>
         <CardHeader>
-          <CardTitle>إضافة مالك (CRM)</CardTitle>
-          <CardDescription>سيتم ربط المالك بالعقار بعد الحفظ</CardDescription>
+          <CardTitle>{t('propertyCreate.ownerModalTitle')}</CardTitle>
+          <CardDescription>{t('propertyCreate.ownerModalDesc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={onQuickCreateOwner} className="grid grid-cols-1 gap-3">
             <div>
-              <Label>الاسم الكامل</Label>
+              <Label>{t('propertyCreate.ownerFullName')}</Label>
               <Input value={quickOwnerName} onChange={(e) => setQuickOwnerName(e.target.value)} required />
             </div>
             <div>
-              <Label>رقم الهوية / السجل</Label>
+              <Label>{t('propertyCreate.ownerNationalId')}</Label>
               <Input value={quickNational} onChange={(e) => setQuickNational(e.target.value)} required />
             </div>
             <div>
-              <Label>رقم الجوال</Label>
+              <Label>{t('propertyCreate.ownerPhone')}</Label>
               <Input value={quickPhone} onChange={(e) => setQuickPhone(e.target.value)} required />
             </div>
             <div className="flex gap-2 pt-2">
               <Button variant="gold" className="flex-1" type="submit" disabled={ownerQuickSaving}>
-                {ownerQuickSaving ? 'جاري الحفظ...' : 'حفظ المالك'}
+                {ownerQuickSaving ? t('propertyCreate.saving') : t('propertyCreate.ownerSaveBtn')}
               </Button>
               <Button variant="subtle" className="flex-1" type="button" onClick={() => setShowOwnerQuick(false)} disabled={ownerQuickSaving}>
-                إلغاء
+                {t('propertyCreate.ownerCancelBtn')}
               </Button>
             </div>
           </form>
@@ -286,4 +290,3 @@ export default function PropertyCreate() {
     </div>
   )
 }
-

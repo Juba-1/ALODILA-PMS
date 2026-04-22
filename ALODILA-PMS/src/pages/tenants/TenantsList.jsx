@@ -18,13 +18,9 @@ function normalizePhoneForWa(phone) {
   const raw = String(phone || '').trim()
   const digits = raw.replace(/[^\d]/g, '')
   if (!digits) return null
-  // Saudi normalization (approved):
-  // - 05XXXXXXXX -> 9665XXXXXXXX
-  // - +966..., 00966... -> 966...
-  // Keep other international numbers intact.
   if (digits.startsWith('00966')) return '966' + digits.slice(5)
   if (digits.startsWith('966')) return digits
-  if (digits.startsWith('05') && digits.length >= 10) return '966' + digits.slice(1) // drop leading 0
+  if (digits.startsWith('05') && digits.length >= 10) return '966' + digits.slice(1)
   return digits
 }
 
@@ -33,13 +29,7 @@ function whatsappUrl(phone) {
   return normalized ? `https://wa.me/${normalized}` : null
 }
 
-function tenantTypeLabel(v) {
-  if (v === 'individual') return 'فرد'
-  if (v === 'company') return 'شركة'
-  return v || '-'
-}
-
-function WhatsAppButton({ phone }) {
+function WhatsAppButton({ phone, label, title }) {
   const url = whatsappUrl(phone)
   if (!url) return <span className="text-slate-400">-</span>
 
@@ -49,19 +39,20 @@ function WhatsAppButton({ phone }) {
       target="_blank"
       rel="noreferrer"
       className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
-      title="فتح واتساب"
+      title={title}
     >
       <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
         <path d="M19.11 17.39c-.27-.14-1.6-.79-1.85-.88-.25-.09-.43-.14-.61.14-.18.27-.7.88-.86 1.06-.16.18-.32.2-.59.07-.27-.14-1.14-.42-2.17-1.34-.8-.72-1.35-1.6-1.51-1.87-.16-.27-.02-.41.12-.55.12-.12.27-.32.41-.48.14-.16.18-.27.27-.45.09-.18.05-.34-.02-.48-.07-.14-.61-1.48-.84-2.03-.22-.53-.45-.46-.61-.47h-.52c-.18 0-.48.07-.73.34-.25.27-.95.93-.95 2.27 0 1.34.97 2.64 1.11 2.82.14.18 1.9 2.9 4.61 4.06.65.28 1.16.45 1.56.58.66.21 1.26.18 1.74.11.53-.08 1.6-.65 1.83-1.28.23-.63.23-1.17.16-1.28-.07-.11-.25-.18-.52-.32z" />
         <path d="M26.4 5.6C23.9 3.1 20.6 1.7 17.1 1.7c-7.3 0-13.2 5.9-13.2 13.2 0 2.3.6 4.5 1.7 6.5L3.8 30l8.8-1.7c1.9 1.1 4.1 1.7 6.4 1.7 7.3 0 13.2-5.9 13.2-13.2 0-3.5-1.4-6.8-3.8-9.2zM17.1 27.8c-2 0-4-.5-5.7-1.6l-.4-.2-5.2 1 1-5.1-.3-.5c-1.1-1.7-1.6-3.7-1.6-5.7 0-6 4.9-10.9 10.9-10.9 2.9 0 5.6 1.1 7.7 3.2 2 2 3.2 4.8 3.2 7.7 0 6-4.9 10.9-10.9 10.9z" />
       </svg>
-      واتساب
+      {label}
     </a>
   )
 }
 
 export default function TenantsList() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
   const { push: toastPush } = useToastDispatch()
   const [items, setItems] = useState([])
   const [busy, setBusy] = useState(true)
@@ -71,6 +62,12 @@ export default function TenantsList() {
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(null)
 
+  const tenantTypeLabel = (v) => {
+    if (v === 'individual') return t('tenantsList.typeIndividual')
+    if (v === 'company') return t('tenantsList.typeCompany')
+    return v || '-'
+  }
+
   async function refresh() {
     setBusy(true)
     try {
@@ -78,7 +75,7 @@ export default function TenantsList() {
       setItems(data)
     } catch (e) {
       if (!isIgnorableAuthLockError(e)) console.error('[TenantsList] refresh', e)
-      reportLoadFailure(toastPush, e, 'تعذر تحميل المستأجرين', true)
+      reportLoadFailure(toastPush, e, t('tenantsList.toastLoadFail'), true)
     } finally {
       setBusy(false)
     }
@@ -92,29 +89,29 @@ export default function TenantsList() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
     if (!needle) return items
-    return items.filter((t) => {
-      const hay = `${t.full_name || ''} ${t.national_id_or_cr || ''} ${t.phone || ''}`.toLowerCase()
+    return items.filter((it) => {
+      const hay = `${it.full_name || ''} ${it.national_id_or_cr || ''} ${it.phone || ''}`.toLowerCase()
       return hay.includes(needle)
     })
   }, [items, q])
 
   const exportRows = useMemo(() => {
-    return filtered.map((t) => ({
-      'الهوية/السجل': t.national_id_or_cr,
-      الاسم: t.full_name,
-      النوع: tenantTypeLabel(t.tenant_type),
-      الجوال: t.phone,
+    return filtered.map((it) => ({
+      [t('tenantsList.colIdNumber')]: it.national_id_or_cr,
+      [t('tenantsList.colFullName')]: it.full_name,
+      [t('tenantsList.colType')]: tenantTypeLabel(it.tenant_type),
+      [t('tenantsList.colPhone')]: it.phone,
     }))
-  }, [filtered])
-  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, i18n.language])
 
   function openCreate() {
     setEditing(null)
     setOpen(true)
   }
 
-  function openEdit(t) {
-    setEditing(t)
+  function openEdit(it) {
+    setEditing(it)
     setOpen(true)
   }
 
@@ -124,30 +121,30 @@ export default function TenantsList() {
       if (editing?.id) {
         const updated = await updateTenant(editing.id, values)
         setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-        toastPush({ type: 'success', title: 'تم التحديث', message: 'تم تحديث بيانات المستأجر بنجاح.' })
+        toastPush({ type: 'success', title: t('tenantsList.toastUpdatedTitle'), message: t('tenantsList.toastUpdatedMsg') })
       } else {
         const created = await createTenant(values)
         setItems((prev) => [created, ...prev])
-        toastPush({ type: 'success', title: 'تمت الإضافة', message: 'تم إضافة المستأجر بنجاح.' })
+        toastPush({ type: 'success', title: t('tenantsList.toastCreatedTitle'), message: t('tenantsList.toastCreatedMsg') })
       }
       setOpen(false)
       setEditing(null)
     } catch (e) {
-      reportLoadFailure(toastPush, e, 'فشل الحفظ', true)
+      reportLoadFailure(toastPush, e, t('tenantsList.toastSaveFail'), true)
     } finally {
       setSaving(false)
     }
   }
 
   async function onDelete(id) {
-    const ok = window.confirm('هل تريد إخفاء هذا المستأجر؟')
+    const ok = window.confirm(t('tenantsList.confirmHide'))
     if (!ok) return
     try {
       await softDeleteTenant(id)
       setItems((prev) => prev.filter((x) => x.id !== id))
-      toastPush({ type: 'success', title: 'تم الإخفاء', message: 'تم إخفاء المستأجر بنجاح.' })
+      toastPush({ type: 'success', title: t('tenantsList.toastHiddenTitle'), message: t('tenantsList.toastHiddenMsg') })
     } catch (e) {
-      reportLoadFailure(toastPush, e, 'فشل الإخفاء', true)
+      reportLoadFailure(toastPush, e, t('tenantsList.toastHideFail'), true)
     }
   }
 
@@ -157,23 +154,22 @@ export default function TenantsList() {
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <CardTitle>المستأجرين</CardTitle>
-              <CardDescription>نظام CRM لإدارة بيانات المستأجرين قبل ربطهم بالعقود</CardDescription>
+              <CardTitle>{t('tenantsList.pageTitle')}</CardTitle>
+              <CardDescription>{t('tenantsList.pageDesc')}</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <ExportButton rows={exportRows} filename="تصدير-المستأجرين" disabled={busy} />
-              <ExportButton rows={exportRows} filename="تصدير-المستأجرين" format="csv" disabled={busy} />
+              <ExportButton rows={exportRows} filename={t('tenantsList.exportFilename')} disabled={busy} />
+              <ExportButton rows={exportRows} filename={t('tenantsList.exportFilename')} format="csv" disabled={busy} />
               <TargetedPdfButton
-                label="طباعة / PDF"
                 disabled={busy}
                 onClick={() =>
                   exportReportPdf({
-                    title: dir === 'ltr' ? 'Tenants' : 'المستأجرين',
-                    subtitle: dir === 'ltr' ? 'Tenant master list' : 'قائمة المستأجرين (CRM)',
+                    title: t('tenantsList.pdfTitle'),
+                    subtitle: t('tenantsList.pdfSubtitle'),
                     filename: 'tenants',
                     metaLines: [
-                      `${dir === 'ltr' ? 'Date' : 'التاريخ'}: ${new Date().toISOString().slice(0, 10)}`,
-                      `${dir === 'ltr' ? 'Rows' : 'عدد الصفوف'}: ${exportRows.length}`,
+                      `${t('common.date')}: ${new Date().toISOString().slice(0, 10)}`,
+                      `${t('contractsList.pdfRowsLabel')}: ${exportRows.length}`,
                     ],
                     rows: exportRows,
                     dir,
@@ -181,7 +177,7 @@ export default function TenantsList() {
                 }
               />
               <Button variant="gold" onClick={openCreate}>
-                إضافة مستأجر
+                {t('tenantsList.newTenant')}
               </Button>
             </div>
           </div>
@@ -189,12 +185,12 @@ export default function TenantsList() {
         <CardContent>
           <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="sm:col-span-2">
-              <Label>بحث</Label>
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث بالاسم/الهوية/الجوال..." />
+              <Label>{t('tenantsList.searchLabel')}</Label>
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('tenantsList.searchPlaceholder')} />
             </div>
             <div className="flex items-end">
               <div className="w-full rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
-                الإجمالي: <span className="font-bold text-slate-900">{filtered.length}</span>
+                {t('tenantsList.totalLabel')}: <span className="font-bold text-slate-900">{filtered.length}</span>
               </div>
             </div>
           </div>
@@ -203,13 +199,13 @@ export default function TenantsList() {
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-slate-50">
-                  <tr className="text-right text-xs font-bold text-slate-600">
-                    <th className="px-4 py-3">رقم الهوية/السجل</th>
-                    <th className="px-4 py-3">الاسم الكامل</th>
-                    <th className="px-4 py-3">نوع المستأجر</th>
-                    <th className="px-4 py-3">رقم الجوال</th>
-                    <th className="px-4 py-3">واتساب</th>
-                    <th className="px-4 py-3">إجراءات</th>
+                  <tr className="text-start text-xs font-bold text-slate-600">
+                    <th className="px-4 py-3">{t('tenantsList.colIdNumber')}</th>
+                    <th className="px-4 py-3">{t('tenantsList.colFullName')}</th>
+                    <th className="px-4 py-3">{t('tenantsList.colType')}</th>
+                    <th className="px-4 py-3">{t('tenantsList.colPhone')}</th>
+                    <th className="px-4 py-3">{t('tenantsList.colWhatsapp')}</th>
+                    <th className="px-4 py-3">{t('tenantsList.colActions')}</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white">
@@ -228,37 +224,33 @@ export default function TenantsList() {
                       <td colSpan={6} className="p-6">
                         <EmptyState
                           icon="👤"
-                          title={items.length === 0 ? 'لا يوجد مستأجرون بعد' : 'لا توجد نتائج للبحث'}
-                          description={
-                            items.length === 0
-                              ? 'أضف أول مستأجر لربطه لاحقاً بالعقود والفواتير.'
-                              : 'جرّب تعديل عبارة البحث أو امسح الحقل لعرض القائمة كاملة.'
-                          }
+                          title={items.length === 0 ? t('tenantsList.emptyTitle') : t('tenantsList.emptyTitleFiltered')}
+                          description={items.length === 0 ? t('tenantsList.emptyDesc') : t('tenantsList.emptyDescFiltered')}
                         />
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((t) => (
-                      <tr key={t.id} className="border-t border-slate-100 hover:bg-slate-50/60">
-                        <td className="px-4 py-3 font-bold text-slate-900">{t.national_id_or_cr}</td>
-                        <td className="px-4 py-3 text-slate-800">{t.full_name}</td>
-                        <td className="px-4 py-3 text-slate-700">{tenantTypeLabel(t.tenant_type)}</td>
-                        <td className="px-4 py-3 text-slate-700">{t.phone}</td>
+                    filtered.map((it) => (
+                      <tr key={it.id} className="border-t border-slate-100 hover:bg-slate-50/60">
+                        <td className="px-4 py-3 font-bold text-slate-900">{it.national_id_or_cr}</td>
+                        <td className="px-4 py-3 text-slate-800">{it.full_name}</td>
+                        <td className="px-4 py-3 text-slate-700">{tenantTypeLabel(it.tenant_type)}</td>
+                        <td className="px-4 py-3 text-slate-700">{it.phone}</td>
                         <td className="px-4 py-3">
-                          <WhatsAppButton phone={t.phone} />
+                          <WhatsAppButton phone={it.phone} label={t('tenantsList.whatsappOpen')} title={t('tenantsList.whatsappTitle')} />
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
-                            <Button variant="subtle" size="sm" onClick={() => openEdit(t)}>
-                              تعديل
+                            <Button variant="subtle" size="sm" onClick={() => openEdit(it)}>
+                              {t('tenantsList.editAction')}
                             </Button>
-                            <Link to={`/tenants/${t.id}/statement`}>
+                            <Link to={`/tenants/${it.id}/statement`}>
                               <Button variant="ghost" size="sm" type="button">
-                                كشف حساب
+                                {t('tenantsList.statementAction')}
                               </Button>
                             </Link>
-                            <Button variant="ghost" size="sm" onClick={() => onDelete(t.id)}>
-                              إخفاء
+                            <Button variant="ghost" size="sm" onClick={() => onDelete(it.id)}>
+                              {t('tenantsList.hideAction')}
                             </Button>
                           </div>
                         </td>
@@ -278,4 +270,3 @@ export default function TenantsList() {
     </div>
   )
 }
-

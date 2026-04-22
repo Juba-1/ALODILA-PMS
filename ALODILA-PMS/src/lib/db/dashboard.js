@@ -1,7 +1,7 @@
 import { supabase } from '../supabase/client'
 import { paymentStatusOfInvoice } from '../finance/invoiceDerived'
 import { sumInvoicesTotalAndMonth, sumMaintenanceCostAndMonth, sumPaymentsAmountAndMonth } from './ledgerTotals'
-import { centsToMoneyString } from '../money/cents'
+import { centsToMoneyString, moneyToCents } from '../money/cents'
 
 function isoTodayLocal() {
   const d = new Date()
@@ -29,24 +29,61 @@ function daysBetweenISO(a, b) {
 async function fetchPortfolioCounts() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const [propsRes, unitsRes, contractsRes] = await Promise.all([
+  // NOTE on `units`: we need status breakdown for the occupancy KPI. Using
+  // `head: true` on a status query doesn't give us the by-status split, so we
+  // load a slim selection (id, status) and tally client-side. The units table
+  // is small enough that this is cheaper than N separate COUNTs.
+  const [propsRes, unitsRes, contractsRes, pendingMaintRes] = await Promise.all([
     supabase.from('properties').select('id', { count: 'exact', head: true }).eq('is_deleted', false),
-    supabase.from('units').select('id', { count: 'exact', head: true }).eq('is_deleted', false),
+    supabase.from('units').select('id, status').eq('is_deleted', false),
     supabase
       .from('contracts')
       .select('id', { count: 'exact', head: true })
       .eq('is_deleted', false)
       .eq('status', 'ساري'),
+    supabase
+      .from('maintenance_requests')
+      .select('id, cost_amount, status')
+      .eq('is_deleted', false)
+      .in('status', ['مفتوح', 'قيد المعالجة']),
   ])
 
   if (propsRes.error) throw propsRes.error
   if (unitsRes.error) throw unitsRes.error
   if (contractsRes.error) throw contractsRes.error
+  if (pendingMaintRes.error) throw pendingMaintRes.error
+
+  const unitRows = unitsRes.data || []
+  const unitsCount = unitRows.length
+  let rented = 0
+  let vacant = 0
+  let underMaintenance = 0
+  for (const u of unitRows) {
+    const s = String(u?.status || '')
+    if (s === 'مؤجرة') rented += 1
+    else if (s === 'شاغرة') vacant += 1
+    else if (s === 'تحت الصيانة') underMaintenance += 1
+  }
+
+  let pendingMaintCostCents = 0
+  const pendingMaintCount = (pendingMaintRes.data || []).length
+  for (const r of pendingMaintRes.data || []) {
+    pendingMaintCostCents += Math.max(0, moneyToCents(r?.cost_amount))
+  }
 
   return {
     propertiesCount: propsRes.count || 0,
-    unitsCount: unitsRes.count || 0,
+    unitsCount,
     activeContractsCount: contractsRes.count || 0,
+    unitsBreakdown: {
+      rented,
+      vacant,
+      underMaintenance,
+    },
+    pendingMaintenance: {
+      count: pendingMaintCount,
+      cents: pendingMaintCostCents,
+    },
   }
 }
 
@@ -59,6 +96,13 @@ export async function getDashboardStats() {
   const totalInvoicedCents = invRoll.totalAllTimeCents
   const totalCollectedCents = payRoll.totalAllTimeCents
   const outstandingCents = Math.max(0, totalInvoicedCents - totalCollectedCents)
+
+  const totalUnits = counts.unitsCount || 0
+  const rented = counts.unitsBreakdown?.rented || 0
+  const occupancyPct = totalUnits > 0 ? Math.round((rented / totalUnits) * 1000) / 10 : 0 // 1-decimal
+  const collectionPct =
+    totalInvoicedCents > 0 ? Math.round((totalCollectedCents / totalInvoicedCents) * 1000) / 10 : 0
+
   return {
     ...counts,
     totalRevenue: Number(centsToMoneyString(totalCollectedCents)),
@@ -66,6 +110,10 @@ export async function getDashboardStats() {
       totalInvoicedSar: centsToMoneyString(totalInvoicedCents),
       totalCollectedSar: centsToMoneyString(totalCollectedCents),
       outstandingSar: centsToMoneyString(outstandingCents),
+      occupancyPct,
+      collectionPct,
+      pendingMaintenanceSar: centsToMoneyString(counts.pendingMaintenance?.cents || 0),
+      pendingMaintenanceCount: counts.pendingMaintenance?.count || 0,
     },
   }
 }

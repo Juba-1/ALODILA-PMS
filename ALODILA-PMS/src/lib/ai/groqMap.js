@@ -1,4 +1,4 @@
-import { getViteGroqApiKey } from './groqEnv'
+import { createAiUnavailableError, getViteGroqApiKey } from './groqEnv'
 import { groqChatCompletions } from './groqChat'
 
 function sleep(ms) {
@@ -159,29 +159,20 @@ function normalizeOutputRow(raw, fallback) {
 }
 
 async function mapChunkWithModel(rows) {
-  const userContent = buildChunkUserContent(rows)
-  const key = import.meta.env.DEV ? getViteGroqApiKey() : ''
-  if (import.meta.env.DEV && key) {
-    return groqChatCompletions({
-      apiKey: key,
-      messages: [
-        { role: 'system', content: SYSTEM_MAP },
-        { role: 'user', content: userContent },
-      ],
-      temperature: 0.1,
-      max_tokens: 8192,
-      response_format: { type: 'json_object' },
-    })
-  }
+  const key = getViteGroqApiKey()
+  if (!key) throw createAiUnavailableError()
 
-  const res = await fetch('/api/groq-map', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ system: SYSTEM_MAP, user: userContent, temperature: 0.1, max_tokens: 8192 }),
+  const userContent = buildChunkUserContent(rows)
+  return groqChatCompletions({
+    apiKey: key,
+    messages: [
+      { role: 'system', content: SYSTEM_MAP },
+      { role: 'user', content: userContent },
+    ],
+    temperature: 0.1,
+    max_tokens: 8192,
+    response_format: { type: 'json_object' },
   })
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(json?.error || `Groq proxy error (${res.status})`)
-  return String(json?.text || '')
 }
 
 async function processChunkAdaptive(rows, chunkSize, attempt = 0) {

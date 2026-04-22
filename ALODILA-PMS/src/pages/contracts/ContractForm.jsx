@@ -6,6 +6,7 @@ import { Input, Label, Textarea } from '../../components/ui/Input'
 import { Select } from '../../components/ui/Select'
 import { cn } from '../../components/ui/cn'
 import { contractFormPayloadSchema, zodFirstIssueMessage } from '../../lib/validation/schemas'
+import { computeInstallmentSchedule, monthsBetween } from '../../lib/finance/schedule'
 
 const BILLING_VALUES = ['شهري', 'ربع سنوي', 'نصف سنوي', 'سنوي']
 const STATUS_VALUES = ['ساري', 'منتهي', 'ملغى', 'نزاع قانوني']
@@ -35,7 +36,8 @@ function buildOccupiedUnitMap(existingContracts, excludeContractId) {
 }
 
 export default function ContractForm({ initialValue, tenants, units, existingContracts = [], busy, onSubmit, onCancel }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const numberLocale = (i18n.language?.startsWith('en') ? 'en-US' : 'ar-SA') + '-u-nu-latn'
   const isEdit = Boolean(initialValue?.id)
 
   const [tenantId, setTenantId] = useState('')
@@ -51,6 +53,8 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
   const [utilityType, setUtilityType] = useState('مستقل')
   const [utilityFlat, setUtilityFlat] = useState('')
   const [handoverNotes, setHandoverNotes] = useState('')
+  const [autoSchedule, setAutoSchedule] = useState(true)
+  const [vatApplicable, setVatApplicable] = useState(false)
 
   const [tenantQ, setTenantQ] = useState('')
   const [unitQ, setUnitQ] = useState('')
@@ -108,11 +112,13 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
         : '',
     )
     setHandoverNotes(initialValue?.handover_notes != null ? String(initialValue.handover_notes) : '')
+    setAutoSchedule(!isEdit)
+    setVatApplicable(false)
     setUserEditedContractValue(false)
     setFormError('')
     setTenantQ('')
     setUnitQ('')
-  }, [initialValue])
+  }, [initialValue, isEdit])
 
   useEffect(() => {
     if (isEdit || userEditedContractValue) return
@@ -120,8 +126,10 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
     if (!u || unitId === '') return
     const tr = Number(u.target_rent_value)
     if (!Number.isFinite(tr) || tr < 0) return
-    setValue(String(tr))
-  }, [unitId, units, isEdit, userEditedContractValue])
+    const months = startDate && endDate ? monthsBetween(startDate, endDate) : 0
+    const total = months > 0 ? Math.round(tr * months * 100) / 100 : tr
+    setValue(String(total))
+  }, [unitId, units, isEdit, userEditedContractValue, startDate, endDate])
 
   useEffect(() => {
     if (status !== 'ساري' || !unitId) return
@@ -146,6 +154,18 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
       : units || []
     return list
   }, [units, unitQ])
+
+  const schedulePreview = useMemo(() => {
+    return computeInstallmentSchedule({
+      contract_value: value,
+      start_date: startDate,
+      end_date: endDate,
+      billing_cycle: cycle,
+      utility_payment_type: utilityType,
+      utility_flat_amount_sar: utilityType === 'مقطوع' ? utilityFlat : null,
+      vat_applicable: vatApplicable,
+    })
+  }, [value, startDate, endDate, cycle, utilityType, utilityFlat, vatApplicable])
 
   function validateBeforeSubmit() {
     setFormError('')
@@ -215,6 +235,10 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
               utility_payment_type: utilityType,
               utility_flat_amount_sar: utilityType === 'مقطوع' ? utilityFlat : null,
               handover_notes: handoverNotes.trim() ? handoverNotes.trim() : null,
+              _schedule: {
+                auto: Boolean(autoSchedule) && !isEdit,
+                vat_applicable: Boolean(vatApplicable),
+              },
             })
           }}
           className="grid grid-cols-1 gap-4 sm:grid-cols-2"
@@ -298,7 +322,7 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
           </div>
 
           <div>
-            <Label>{t('contractsForm.valueLabel')}</Label>
+            <Label>{t('contractsForm.contractValueTotalLabel')}</Label>
             <Input
               value={value}
               onChange={(e) => {
@@ -310,7 +334,17 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
               step="0.01"
               required
             />
-            {!isEdit && unitId ? <p className="mt-1 text-[11px] text-slate-500">{t('contractsForm.valueHint')}</p> : null}
+            <p className="mt-1 text-[11px] text-slate-500">
+              {schedulePreview.monthly_rent_equivalent
+                ? t('contractsForm.equivalentMonthlyHint', {
+                    amount: schedulePreview.monthly_rent_equivalent.toLocaleString(numberLocale),
+                    months: schedulePreview.months_total,
+                  })
+                : t('contractsForm.valueDistributeHint')}
+            </p>
+            {!isEdit && unitId ? (
+              <p className="mt-1 text-[11px] text-slate-500">{t('contractsForm.autoPrefillHint')}</p>
+            ) : null}
           </div>
           <div>
             <Label>{t('contractsForm.depositLabel')}</Label>
@@ -379,6 +413,114 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
                 </option>
               ))}
             </Select>
+          </div>
+
+          <div className="sm:col-span-2 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-extrabold text-emerald-900">{t('contractsForm.scheduleBlockTitle')}</div>
+                <div className="mt-0.5 text-xs text-emerald-800">
+                  {t('contractsForm.scheduleBlockDesc')}
+                </div>
+              </div>
+              {!isEdit ? (
+                <label className="inline-flex shrink-0 cursor-pointer select-none items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-emerald-900 ring-1 ring-emerald-200 hover:bg-emerald-100">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-emerald-600"
+                    checked={autoSchedule}
+                    onChange={(e) => setAutoSchedule(e.target.checked)}
+                  />
+                  {t('contractsForm.autoGenerateToggle')}
+                </label>
+              ) : (
+                <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">
+                  {t('contractsForm.autoGenerateEditOnly')}
+                </span>
+              )}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-xl bg-white p-3 ring-1 ring-emerald-100">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">{t('contractsForm.installmentsCount')}</div>
+                <div className="mt-1 text-lg font-extrabold text-slate-900">{schedulePreview.count || '—'}</div>
+              </div>
+              <div className="rounded-xl bg-white p-3 ring-1 ring-emerald-100">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">{t('contractsForm.contractMonths')}</div>
+                <div className="mt-1 text-lg font-extrabold text-slate-900">{schedulePreview.months_total || '—'}</div>
+              </div>
+              <div className="rounded-xl bg-white p-3 ring-1 ring-emerald-100">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">{t('contractsForm.contractTotalValue')}</div>
+                <div className="mt-1 text-lg font-extrabold text-slate-900">
+                  {schedulePreview.total_contract_value ? schedulePreview.total_contract_value.toLocaleString(numberLocale) : '—'}
+                </div>
+              </div>
+              <div className="rounded-xl bg-white p-3 ring-1 ring-emerald-100">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">{t('contractsForm.averageInstallment')}</div>
+                <div className="mt-1 text-lg font-extrabold text-slate-900">
+                  {schedulePreview.per_installment_rent
+                    ? (schedulePreview.per_installment_rent + schedulePreview.per_installment_utility).toLocaleString(numberLocale)
+                    : '—'}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-white px-3 py-1.5 font-bold text-emerald-900 ring-1 ring-emerald-200">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-emerald-600"
+                  checked={vatApplicable}
+                  onChange={(e) => setVatApplicable(e.target.checked)}
+                />
+                {t('contractsForm.vatToggle')}
+              </label>
+              <span className="text-emerald-800">
+                {t('contractsForm.currentCycle')}
+                <span className="font-extrabold">{t(`billingCycle.${cycle}`, { defaultValue: cycle })}</span>
+              </span>
+            </div>
+            {schedulePreview.installments.length ? (
+              <div className="mt-4 overflow-hidden rounded-xl ring-1 ring-emerald-100">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="bg-emerald-100/60 text-start text-[11px] font-extrabold text-emerald-900">
+                    <tr>
+                      <th className="px-3 py-2">#</th>
+                      <th className="px-3 py-2">{t('contractsForm.tableDue')}</th>
+                      <th className="px-3 py-2">{t('contractsForm.tableBase')}</th>
+                      {vatApplicable ? <th className="px-3 py-2">{t('contractsForm.tableVat')}</th> : null}
+                      <th className="px-3 py-2">{t('contractsForm.tableTotal')}</th>
+                      <th className="px-3 py-2">{t('contractsForm.tableStatus')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white">
+                    {schedulePreview.installments.slice(0, 6).map((inst) => (
+                      <tr key={inst.index} className="border-t border-emerald-50 text-slate-800">
+                        <td className="px-3 py-2 font-mono">{inst.index}</td>
+                        <td className="px-3 py-2">{inst.due_date}</td>
+                        <td className="px-3 py-2 font-mono">{inst.subtotal_amount.toLocaleString(numberLocale)}</td>
+                        {vatApplicable ? <td className="px-3 py-2 font-mono">{inst.vat_amount.toLocaleString(numberLocale)}</td> : null}
+                        <td className="px-3 py-2 font-mono font-extrabold text-slate-900">{inst.total_amount.toLocaleString(numberLocale)}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700 ring-1 ring-slate-200">
+                            {t('contractsForm.installmentPending')}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {schedulePreview.installments.length > 6 ? (
+                      <tr>
+                        <td className="px-3 py-2 text-center text-[11px] font-bold text-slate-500" colSpan={vatApplicable ? 6 : 5}>
+                          {t('contractsForm.moreInstallments', { count: schedulePreview.installments.length - 6 })}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl bg-white p-3 text-xs text-emerald-900 ring-1 ring-emerald-100">
+                {t('contractsForm.noPreview')}
+              </div>
+            )}
           </div>
 
           {formError ? (

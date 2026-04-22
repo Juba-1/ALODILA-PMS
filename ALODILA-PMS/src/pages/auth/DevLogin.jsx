@@ -99,7 +99,7 @@ export default function DevLogin() {
         }
       }
     } catch (err) {
-      console.error('[DevLogin] staff', err)
+      console.error('[DevLogin] staff', err?.message || 'auth error')
       reportLoadFailure(push, err, t('auth.toastAuthFail'), true)
     } finally {
       setBusy(false)
@@ -225,7 +225,7 @@ export default function DevLogin() {
       push({ type: 'success', title: t('auth.toastLoginOk') })
       navigate('/owner', { replace: true })
     } catch (err) {
-      console.error('[DevLogin] owner', err)
+      console.error('[DevLogin] owner', err?.message || 'auth error')
       reportLoadFailure(push, err, t('auth.toastOwnerFail'), true)
     } finally {
       setBusy(false)

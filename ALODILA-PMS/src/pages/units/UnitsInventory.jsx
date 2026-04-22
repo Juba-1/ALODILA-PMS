@@ -14,24 +14,12 @@ import { getActiveProperties } from '../../lib/db/properties'
 import { getUnitsInventory, updateUnit } from '../../lib/db/units'
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
 import { exportReportPdf } from '../../lib/print/targetedPdf'
+import { translateUnitStatus } from '../../lib/i18n/domainLabels'
 
 const UNIT_TYPES = ['Residential', 'Commercial', 'Mixed']
-const UNIT_STATUSES = ['شاغرة', 'مؤجرة', 'تحت الصيانة', 'غير متاحة']
+const UNIT_STATUSES_AR = ['شاغرة', 'مؤجرة', 'تحت الصيانة', 'غير متاحة']
 
-function typeLabel(t) {
-  if (t === 'Residential') return 'سكني'
-  if (t === 'Commercial') return 'تجاري'
-  if (t === 'Mixed') return 'مختلط'
-  return t || ''
-}
-
-const TABS = [
-  { key: 'all', label: 'الكل' },
-  { key: 'شاغرة', label: 'الشواغر' },
-  { key: 'مؤجرة', label: 'المؤجرة' },
-  { key: 'تحت الصيانة', label: 'تحت الصيانة' },
-  { key: 'غير متاحة', label: 'غير متاحة' },
-]
+const TAB_KEYS = ['all', 'شاغرة', 'مؤجرة', 'تحت الصيانة', 'غير متاحة']
 
 function statusBadge(status) {
   if (status === 'شاغرة') return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
@@ -41,7 +29,9 @@ function statusBadge(status) {
 }
 
 export default function UnitsInventory() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language?.startsWith('en') ? 'en' : 'ar'
+  const dir = lang === 'en' ? 'ltr' : 'rtl'
   const { push: toastPush } = useToastDispatch()
   const [items, setItems] = useState([])
   const [busy, setBusy] = useState(true)
@@ -67,13 +57,29 @@ export default function UnitsInventory() {
   const [editWater, setEditWater] = useState('')
   const [editSaving, setEditSaving] = useState(false)
 
+  const typeLabel = (raw) => {
+    if (raw === 'Residential') return t('unitsInventory.typeResidential')
+    if (raw === 'Commercial') return t('unitsInventory.typeCommercial')
+    if (raw === 'Mixed') return t('unitsInventory.typeMixed')
+    return raw || ''
+  }
+
+  const tabLabel = (key) => {
+    if (key === 'all') return t('unitsInventory.tabAll')
+    if (key === 'شاغرة') return t('unitsInventory.tabVacant')
+    if (key === 'مؤجرة') return t('unitsInventory.tabLeased')
+    if (key === 'تحت الصيانة') return t('unitsInventory.tabUnderMaintenance')
+    if (key === 'غير متاحة') return t('unitsInventory.tabUnavailable')
+    return key
+  }
+
   async function refresh() {
     setBusy(true)
     try {
       const data = await getUnitsInventory()
       setItems(data)
     } catch (e) {
-      reportLoadFailure(toastPush, e, 'تعذر تحميل الوحدات', true)
+      reportLoadFailure(toastPush, e, t('unitsInventory.toastLoadFail'), true)
     } finally {
       setBusy(false)
     }
@@ -89,7 +95,7 @@ export default function UnitsInventory() {
         if (!cancelled) setProperties(p)
       } catch (e) {
         if (!cancelled && !isIgnorableAuthLockError(e)) {
-          reportLoadFailure(toastPush, e, 'تعذر تحميل العقارات', true)
+          reportLoadFailure(toastPush, e, t('unitsInventory.toastPropertiesFail'), true)
         }
       } finally {
         if (!cancelled) setRefsBusy(false)
@@ -98,6 +104,7 @@ export default function UnitsInventory() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const categoryOptions = useMemo(() => {
@@ -129,17 +136,17 @@ export default function UnitsInventory() {
 
   const exportRows = useMemo(() => {
     return filtered.map((u) => ({
-      العقار: u.property_name || '',
-      'تصنيف العقار': u.property_category || '',
-      الوحدة: u.unit_name || '',
-      'عدد الغرف': u.rooms_count ?? '',
-      الحالة: u.status || '',
-      'القيمة المستهدفة': u.target_rent_value,
-      'رقم عداد الكهرباء': u.electricity_meter_ref || '',
-      'رقم عداد المياه': u.water_meter_ref || '',
+      [t('unitsInventory.colProperty')]: u.property_name || '',
+      [t('unitsInventory.colCategory')]: u.property_category || '',
+      [t('unitsInventory.colUnit')]: u.unit_name || '',
+      [t('unitsInventory.colRooms')]: u.rooms_count ?? '',
+      [t('unitsInventory.colStatus')]: translateUnitStatus(u.status || '', lang),
+      [t('unitsInventory.colTargetRent')]: u.target_rent_value,
+      [t('unitsInventory.colElecMeter')]: u.electricity_meter_ref || '',
+      [t('unitsInventory.colWaterMeter')]: u.water_meter_ref || '',
     }))
-  }, [filtered])
-  const dir = i18n.language?.startsWith('en') ? 'ltr' : 'rtl'
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, i18n.language])
 
   function openUnitEdit(u) {
     setEditRow(u)
@@ -159,15 +166,15 @@ export default function UnitsInventory() {
     const rent = Number(editRent)
     const rooms = Number(editRooms)
     if (!editName.trim()) {
-      toastPush({ type: 'error', title: 'تحقق من المدخلات', message: 'اسم الوحدة إلزامي.' })
+      toastPush({ type: 'error', title: t('unitsInventory.toastValidationTitle'), message: t('unitsInventory.toastValidationName') })
       return
     }
     if (!Number.isFinite(rent) || rent < 0) {
-      toastPush({ type: 'error', title: 'تحقق من المدخلات', message: 'القيمة الإيجارية يجب أن تكون رقمًا صحيحًا.' })
+      toastPush({ type: 'error', title: t('unitsInventory.toastValidationTitle'), message: t('unitsInventory.toastValidationRent') })
       return
     }
     if (!Number.isFinite(rooms) || rooms < 1) {
-      toastPush({ type: 'error', title: 'تحقق من المدخلات', message: 'عدد الغرف يجب أن يكون 1 على الأقل.' })
+      toastPush({ type: 'error', title: t('unitsInventory.toastValidationTitle'), message: t('unitsInventory.toastValidationRooms') })
       return
     }
     setEditSaving(true)
@@ -182,11 +189,11 @@ export default function UnitsInventory() {
         water_meter_ref: editWater,
       })
       setItems((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated, property_name: x.property_name, property_category: x.property_category } : x)))
-      toastPush({ type: 'success', title: 'تم التحديث', message: 'تم تحديث بيانات الوحدة.' })
+      toastPush({ type: 'success', title: t('unitsInventory.toastUpdatedTitle'), message: t('unitsInventory.toastUpdatedMsg') })
       setEditOpen(false)
       setEditRow(null)
     } catch (err) {
-      reportLoadFailure(toastPush, err, 'فشل التحديث', true)
+      reportLoadFailure(toastPush, err, t('unitsInventory.toastUpdateFail'), true)
     } finally {
       setEditSaving(false)
     }
@@ -198,22 +205,21 @@ export default function UnitsInventory() {
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <CardTitle>قائمة الوحدات الشاملة</CardTitle>
-              <CardDescription>عرض بانورامي للوحدات عبر جميع العقارات مع فلاتر حسب الحالة</CardDescription>
+              <CardTitle>{t('unitsInventory.pageTitle')}</CardTitle>
+              <CardDescription>{t('unitsInventory.pageDesc')}</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <ExportButton rows={exportRows} filename="تصدير-قائمة-الوحدات" disabled={busy} />
+              <ExportButton rows={exportRows} filename={t('unitsInventory.exportFilename')} disabled={busy} />
               <TargetedPdfButton
-                label="طباعة / PDF"
                 disabled={busy}
                 onClick={() =>
                   exportReportPdf({
-                    title: dir === 'ltr' ? 'Master unit register' : 'قائمة الوحدات الشاملة',
-                    subtitle: dir === 'ltr' ? 'Units inventory export' : 'تصدير قائمة الوحدات',
+                    title: t('unitsInventory.pdfTitle'),
+                    subtitle: t('unitsInventory.pdfSubtitle'),
                     filename: 'units-inventory',
                     metaLines: [
-                      `${dir === 'ltr' ? 'Date' : 'التاريخ'}: ${new Date().toISOString().slice(0, 10)}`,
-                      `${dir === 'ltr' ? 'Rows' : 'عدد الصفوف'}: ${exportRows.length}`,
+                      `${t('common.date')}: ${new Date().toISOString().slice(0, 10)}`,
+                      `${t('contractsList.pdfRowsLabel')}: ${exportRows.length}`,
                     ],
                     rows: exportRows,
                     dir,
@@ -225,23 +231,23 @@ export default function UnitsInventory() {
         </CardHeader>
         <CardContent>
           <div className="mb-4 flex flex-wrap gap-2">
-            {TABS.map((t) => (
+            {TAB_KEYS.map((key) => (
               <Button
-                key={t.key}
-                variant={tab === t.key ? 'gold' : 'subtle'}
+                key={key}
+                variant={tab === key ? 'gold' : 'subtle'}
                 size="sm"
-                onClick={() => setTab(t.key)}
+                onClick={() => setTab(key)}
               >
-                {t.label}
+                {tabLabel(key)}
               </Button>
             ))}
           </div>
 
           <AdvancedFilterBar>
             <div>
-              <Label>العقار</Label>
+              <Label>{t('unitsInventory.filterProperty')}</Label>
               <Select value={filterPropertyId} onChange={(e) => setFilterPropertyId(e.target.value)} disabled={refsBusy}>
-                <option value="">كل العقارات</option>
+                <option value="">{t('unitsInventory.filterAllProperties')}</option>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -250,9 +256,9 @@ export default function UnitsInventory() {
               </Select>
             </div>
             <div>
-              <Label>تصنيف العقار</Label>
+              <Label>{t('unitsInventory.filterPropertyCategory')}</Label>
               <Select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-                <option value="">كل التصنيفات</option>
+                <option value="">{t('unitsInventory.filterAllCategories')}</option>
                 {categoryOptions.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -261,33 +267,34 @@ export default function UnitsInventory() {
               </Select>
             </div>
             <div>
-              <Label>حالة الوحدة (متقدم)</Label>
+              <Label>{t('unitsInventory.filterUnitStatus')}</Label>
               <Select value={advStatus} onChange={(e) => setAdvStatus(e.target.value)}>
-                <option value="">اتبع التبويب أعلاه</option>
-                <option value="شاغرة">شاغرة</option>
-                <option value="مؤجرة">مؤجرة</option>
-                <option value="تحت الصيانة">تحت الصيانة</option>
-                <option value="غير متاحة">غير متاحة</option>
+                <option value="">{t('unitsInventory.filterFollowTab')}</option>
+                {UNIT_STATUSES_AR.map((s) => (
+                  <option key={s} value={s}>
+                    {translateUnitStatus(s, lang)}
+                  </option>
+                ))}
               </Select>
             </div>
             <div>
-              <Label>عدد الغرف من</Label>
-              <Input inputMode="numeric" value={roomsMin} onChange={(e) => setRoomsMin(e.target.value)} placeholder="مثال: 1" />
+              <Label>{t('unitsInventory.filterRoomsMin')}</Label>
+              <Input inputMode="numeric" value={roomsMin} onChange={(e) => setRoomsMin(e.target.value)} placeholder={t('unitsInventory.filterRoomsMinPh')} />
             </div>
             <div>
-              <Label>عدد الغرف إلى</Label>
-              <Input inputMode="numeric" value={roomsMax} onChange={(e) => setRoomsMax(e.target.value)} placeholder="مثال: 5" />
+              <Label>{t('unitsInventory.filterRoomsMax')}</Label>
+              <Input inputMode="numeric" value={roomsMax} onChange={(e) => setRoomsMax(e.target.value)} placeholder={t('unitsInventory.filterRoomsMaxPh')} />
             </div>
           </AdvancedFilterBar>
 
           <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="sm:col-span-2">
-              <Label>بحث</Label>
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث باسم الوحدة/اسم العقار/الحالة..." />
+              <Label>{t('unitsInventory.searchLabel')}</Label>
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('unitsInventory.searchPlaceholder')} />
             </div>
             <div className="flex items-end">
               <div className="w-full rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
-                الإجمالي: <span className="font-bold text-slate-900">{filtered.length}</span>
+                {t('unitsInventory.totalLabel')}: <span className="font-bold text-slate-900">{filtered.length}</span>
               </div>
             </div>
           </div>
@@ -296,14 +303,14 @@ export default function UnitsInventory() {
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-slate-50">
-                  <tr className="text-right text-xs font-bold text-slate-600">
-                    <th className="px-4 py-3">العقار</th>
-                    <th className="px-4 py-3">تصنيف العقار</th>
-                    <th className="px-4 py-3">الوحدة</th>
-                    <th className="px-4 py-3">عدد الغرف</th>
-                    <th className="px-4 py-3">الحالة</th>
-                    <th className="px-4 py-3">القيمة المستهدفة</th>
-                    <th className="px-4 py-3">إجراءات</th>
+                  <tr className="text-start text-xs font-bold text-slate-600">
+                    <th className="px-4 py-3">{t('unitsInventory.colProperty')}</th>
+                    <th className="px-4 py-3">{t('unitsInventory.colCategory')}</th>
+                    <th className="px-4 py-3">{t('unitsInventory.colUnit')}</th>
+                    <th className="px-4 py-3">{t('unitsInventory.colRooms')}</th>
+                    <th className="px-4 py-3">{t('unitsInventory.colStatus')}</th>
+                    <th className="px-4 py-3">{t('unitsInventory.colTargetRent')}</th>
+                    <th className="px-4 py-3">{t('unitsInventory.colActions')}</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white">
@@ -320,7 +327,7 @@ export default function UnitsInventory() {
                   ) : filtered.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
-                        لا توجد وحدات مطابقة.
+                        {t('unitsInventory.emptyFiltered')}
                       </td>
                     </tr>
                   ) : (
@@ -332,18 +339,18 @@ export default function UnitsInventory() {
                         <td className="px-4 py-3 text-slate-700">{u.rooms_count ?? '-'}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${statusBadge(u.status)}`}>
-                            {u.status}
+                            {translateUnitStatus(u.status, lang)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-slate-700">{u.target_rent_value}</td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-2">
                             <Button type="button" variant="subtle" size="sm" onClick={() => openUnitEdit(u)}>
-                              تعديل
+                              {t('unitsInventory.editAction')}
                             </Button>
                             <Link to={`/properties/${u.property_id}`}>
                               <Button type="button" variant="ghost" size="sm">
-                                العقار
+                                {t('unitsInventory.propertyAction')}
                               </Button>
                             </Link>
                           </div>
@@ -358,61 +365,61 @@ export default function UnitsInventory() {
         </CardContent>
       </Card>
 
-      <Modal open={editOpen} onClose={() => (editSaving ? null : setEditOpen(false))} title="تعديل وحدة">
+      <Modal open={editOpen} onClose={() => (editSaving ? null : setEditOpen(false))} title={t('unitsInventory.modalEditTitle')}>
         <form onSubmit={onSaveUnitEdit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2 text-xs text-slate-500">
             {editRow ? (
               <>
-                العقار: <span className="font-semibold text-slate-800">{editRow.property_name}</span>
+                {t('unitsInventory.modalPropertyLabel')}: <span className="font-semibold text-slate-800">{editRow.property_name}</span>
               </>
             ) : null}
           </div>
           <div className="sm:col-span-2">
-            <Label>اسم الوحدة</Label>
+            <Label>{t('unitsInventory.fieldUnitName')}</Label>
             <Input value={editName} onChange={(e) => setEditName(e.target.value)} required className="mt-1" />
           </div>
           <div>
-            <Label>نوع الوحدة</Label>
+            <Label>{t('unitsInventory.fieldType')}</Label>
             <Select value={editType} onChange={(e) => setEditType(e.target.value)} className="mt-1">
-              {UNIT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {typeLabel(t)}
+              {UNIT_TYPES.map((raw) => (
+                <option key={raw} value={raw}>
+                  {typeLabel(raw)}
                 </option>
               ))}
             </Select>
           </div>
           <div>
-            <Label>القيمة المستهدفة</Label>
+            <Label>{t('unitsInventory.fieldTargetRent')}</Label>
             <Input value={editRent} onChange={(e) => setEditRent(e.target.value)} type="number" min={0} step="0.01" required className="mt-1" />
           </div>
           <div>
-            <Label>عدد الغرف</Label>
+            <Label>{t('unitsInventory.fieldRooms')}</Label>
             <Input value={editRooms} onChange={(e) => setEditRooms(e.target.value)} type="number" min={1} step={1} required className="mt-1" />
           </div>
           <div>
-            <Label>الحالة</Label>
+            <Label>{t('unitsInventory.fieldStatus')}</Label>
             <Select value={editStatus} onChange={(e) => setEditStatus(e.target.value)} className="mt-1">
-              {UNIT_STATUSES.map((s) => (
+              {UNIT_STATUSES_AR.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {translateUnitStatus(s, lang)}
                 </option>
               ))}
             </Select>
           </div>
           <div className="sm:col-span-2">
-            <Label>رقم حساب/عداد الكهرباء (اختياري)</Label>
+            <Label>{t('unitsInventory.fieldElecRef')}</Label>
             <Input value={editElec} onChange={(e) => setEditElec(e.target.value)} className="mt-1" />
           </div>
           <div className="sm:col-span-2">
-            <Label>رقم حساب/عداد المياه (اختياري)</Label>
+            <Label>{t('unitsInventory.fieldWaterRef')}</Label>
             <Input value={editWater} onChange={(e) => setEditWater(e.target.value)} className="mt-1" />
           </div>
           <div className="sm:col-span-2 flex gap-2 pt-2">
             <Button variant="gold" type="submit" className="flex-1" disabled={editSaving}>
-              {editSaving ? 'جاري الحفظ...' : 'حفظ'}
+              {editSaving ? t('common.saving') : t('common.save')}
             </Button>
             <Button variant="subtle" type="button" className="flex-1" onClick={() => setEditOpen(false)} disabled={editSaving}>
-              إلغاء
+              {t('common.cancel')}
             </Button>
           </div>
         </form>
@@ -420,4 +427,3 @@ export default function UnitsInventory() {
     </div>
   )
 }
-

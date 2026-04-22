@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { cn } from '../ui/cn'
 import { useToast } from './ToastProvider'
 
@@ -8,30 +9,32 @@ function styles(type) {
 }
 
 export function Toaster() {
+  const { t } = useTranslation()
   const { toasts, remove } = useToast()
 
   return (
-    <div className="no-print pointer-events-none fixed left-4 top-4 z-50 flex w-[22rem] flex-col gap-2">
-      {toasts.map((t) => (
+    <div className="no-print pointer-events-none fixed top-4 start-4 z-50 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2">
+      {toasts.map((toast) => (
         <div
-          key={t.id}
+          key={toast.id}
           className={cn(
             'pointer-events-auto rounded-xl p-3 shadow-lg ring-1 ring-black/10',
-            styles(t.type),
+            styles(toast.type),
           )}
           role="status"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              {t.title ? <div className="text-sm font-bold">{t.title}</div> : null}
-              {t.message ? <div className="mt-1 text-sm opacity-95">{t.message}</div> : null}
+              {toast.title ? <div className="text-sm font-bold">{toast.title}</div> : null}
+              {toast.message ? <div className="mt-1 text-sm opacity-95">{toast.message}</div> : null}
             </div>
             <button
               type="button"
-              onClick={() => remove(t.id)}
+              onClick={() => remove(toast.id)}
               className="rounded-md px-2 py-1 text-xs font-semibold opacity-90 hover:opacity-100"
+              aria-label={t('common.close')}
             >
-              إغلاق
+              {t('common.close')}
             </button>
           </div>
         </div>

@@ -145,7 +145,7 @@ export default function OwnerReports() {
             <div className="text-sm text-slate-500">{t('owner.noNetRoi')}</div>
           ) : (
             <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200">
-              <table className="min-w-full border-collapse text-right text-sm">
+              <table className="min-w-full border-collapse text-start text-sm">
                 <thead className="bg-slate-50 text-xs font-bold text-slate-600">
                   <tr>
                     <th className="border-b border-slate-200 px-3 py-2">{t('common.property')}</th>
@@ -191,7 +191,7 @@ export default function OwnerReports() {
                 <PrintPdfButton label={t('common.printPdf')} />
               </div>
               <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200">
-                <table className="min-w-full border-collapse text-right text-sm">
+                <table className="min-w-full border-collapse text-start text-sm">
                   <thead className="bg-slate-50 text-xs font-bold text-slate-600">
                     <tr>
                       <th className="border-b border-slate-200 px-3 py-2">{t('common.tenant')}</th>
@@ -236,7 +236,7 @@ export default function OwnerReports() {
             <div className="text-sm text-slate-500">{t('owner.noOverdue')}</div>
           ) : (
             <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200">
-              <table className="min-w-full border-collapse text-right text-sm">
+              <table className="min-w-full border-collapse text-start text-sm">
                 <thead className="bg-slate-50 text-xs font-bold text-slate-600">
                   <tr>
                     <th className="border-b border-slate-200 px-3 py-2">{t('reports.dueDate')}</th>

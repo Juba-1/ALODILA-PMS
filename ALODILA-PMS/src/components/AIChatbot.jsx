@@ -7,7 +7,8 @@ import { isIgnorableAuthLockError } from '../lib/supabase/authErrors'
 import { chatUserRole } from '../lib/auth/roles'
 import { loadAiChatContext } from '../lib/ai/chatContext'
 import { sendChatMessage } from '../lib/ai/aiChat'
-import { hasViteGroqApiKey } from '../lib/ai/groqEnv'
+import { hasViteGroqApiKey, isAiUnavailableError } from '../lib/ai/groqEnv'
+import { AiUnavailableBanner } from './AiUnavailableBanner'
 import { useToastDispatch } from './toast/ToastProvider'
 import { cn } from './ui/cn'
 
@@ -144,12 +145,12 @@ export function AIChatbot() {
       if (isIgnorableAuthLockError(e)) return
       console.error('[AIChatbot] send', e)
       const msg = String(e?.message || '')
-      const title =
-        msg.includes('مفتاح Groq') || msg.includes('VITE_GROQ')
-          ? t('ai.toastGroqSetup')
-          : msg.includes('Groq') || msg.includes('429')
-            ? t('ai.toastModelFailTitle')
-            : t('ai.toastGenericFailTitle')
+      const unavailable = isAiUnavailableError(e) || msg.includes('VITE_GROQ')
+      const title = unavailable
+        ? t('ai.toastGroqSetup')
+        : msg.includes('Groq') || msg.includes('429')
+          ? t('ai.toastModelFailTitle')
+          : t('ai.toastGenericFailTitle')
       push({
         type: 'error',
         title,
@@ -165,7 +166,7 @@ export function AIChatbot() {
   const roleLabel = user ? chatUserRole(user) : '—'
 
   return (
-    <div className="no-print pointer-events-none fixed bottom-6 right-6 z-[60] flex flex-col items-end gap-2 print:hidden">
+    <div className="no-print pointer-events-none fixed bottom-6 end-6 z-[60] flex flex-col items-end gap-2 print:hidden">
       {open ? (
         <div
           className="pointer-events-auto flex h-[min(32rem,calc(100vh-8rem))] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
@@ -189,6 +190,7 @@ export function AIChatbot() {
           </div>
 
           <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-3">
+            {!hasViteGroqApiKey() ? <AiUnavailableBanner lang={panelDir === 'ltr' ? 'en' : 'ar'} /> : null}
             {messages.length === 0 ? (
               <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-600">
                 {t('ai.emptyHint')}

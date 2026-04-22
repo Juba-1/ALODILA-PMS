@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Card } from './Card'
 
 export function Modal({ open, onClose, title, children }) {
+  const { t } = useTranslation()
   useEffect(() => {
     if (!open) return
     const onKey = (e) => {
@@ -18,7 +20,7 @@ export function Modal({ open, onClose, title, children }) {
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px] transition-opacity"
       role="dialog"
       aria-modal="true"
-      aria-label={title || 'نافذة'}
+      aria-label={title || t('a11y.close')}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose?.()
       }}
