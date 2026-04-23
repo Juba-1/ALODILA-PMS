@@ -70,6 +70,9 @@
     "previous": "السابق",
     "next": "التالي"
   },
+  "managerBadge": {
+    "managedBy": "المسؤول عن العقار"
+  },
   "statuses": {
     "active": "ساري",
     "expired": "منتهي",
@@ -323,6 +326,8 @@
     "labelMapsOpen": "فتح الرابط",
     "labelOwner": "مالك العقار (CRM)",
     "labelMgmtStart": "تاريخ بداية الإدارة",
+    "labelAssignedManager": "المسؤول عن العقار",
+    "assignedManagerEmpty": "لم يتم تعيين مسؤول بعد.",
     "unitsTitle": "إدارة الوحدات",
     "unitsDesc": "إضافة/عرض/إخفاء الوحدات المرتبطة بهذا العقار",
     "unitsExportName": "وحدات-العقار-{{id}}",
@@ -412,6 +417,9 @@
     "ownerPh": "ابحث بالاسم أو رقم الهوية...",
     "ownerFallback": "مالك",
     "managementStartLabel": "تاريخ بداية الإدارة (اختياري)",
+    "assignedManagerLabel": "المسؤول عن العقار",
+    "assignedManagerPh": "مثال: خالد العتيبي",
+    "assignedManagerHelp": "اسم الموظف المسؤول داخل فريقك عن هذا العقار. يظهر كشارة مميّزة في جميع شاشات النظام.",
     "saving": "جاري الحفظ...",
     "save": "حفظ",
     "back": "رجوع",
@@ -604,6 +612,8 @@
     "colCapacity": "السعة",
     "colOwner": "المالك",
     "colUnits": "الوحدات",
+    "colAssignedManager": "المسؤول عن العقار",
+    "assignedManagerEmpty": "لم يُعيَّن",
     "colActions": "إجراءات",
     "emptyTitle": "لا توجد عقارات بعد",
     "emptyTitleFiltered": "لا توجد عقارات مطابقة",

@@ -14,6 +14,8 @@ import { getPropertyById, updateProperty } from '../../lib/db/properties'
 import { bulkCreateUnits, getActiveUnitsByPropertyId, softDeleteUnit, updateUnit } from '../../lib/db/units'
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
 import { translatePropertyCategory, translatePropertyType, translateUnitStatus } from '../../lib/i18n/domainLabels'
+import { naturalCompare } from '../../lib/sort/naturalCompare'
+import { ManagerBadge } from '../../components/ManagerBadge'
 
 const TYPES = ['Residential', 'Commercial', 'Mixed']
 const UNIT_STATUSES = ['شاغرة', 'مؤجرة', 'تحت الصيانة', 'غير متاحة']
@@ -48,6 +50,7 @@ export default function PropertyDetail() {
   const [propCategory, setPropCategory] = useState('')
   const [propOwnerCrmId, setPropOwnerCrmId] = useState('')
   const [propMgmtDate, setPropMgmtDate] = useState('')
+  const [propAssignedManager, setPropAssignedManager] = useState('')
   const [propElecMeters, setPropElecMeters] = useState('0')
   const [propWaterMeters, setPropWaterMeters] = useState('0')
   const [propSaving, setPropSaving] = useState(false)
@@ -130,7 +133,8 @@ export default function PropertyDetail() {
     if (!property?.id) return
     setPropOwnerCrmId(String(property.owner_crm_id || ''))
     setPropMgmtDate(property.management_start_date ? String(property.management_start_date).slice(0, 10) : '')
-  }, [property?.id, property?.owner_crm_id, property?.management_start_date])
+    setPropAssignedManager(String(property.assigned_manager || ''))
+  }, [property?.id, property?.owner_crm_id, property?.management_start_date, property?.assigned_manager])
 
   useEffect(() => {
     let cancelled = false
@@ -164,7 +168,7 @@ export default function PropertyDetail() {
     setOwnerQuickSaving(true)
     try {
       const created = await createOwner({ full_name: nm, national_id: nat, phone: ph })
-      setOwners((prev) => [...prev, created].sort((a, b) => String(a.full_name).localeCompare(String(b.full_name))))
+      setOwners((prev) => [...prev, created].sort((a, b) => naturalCompare(a.full_name, b.full_name)))
       setPropOwnerCrmId(created.id)
       setShowOwnerQuick(false)
       setQuickOwnerName('')
@@ -292,10 +296,12 @@ export default function PropertyDetail() {
         water_meter_count: wm,
         owner_crm_id: String(propOwnerCrmId || '').trim() || null,
         management_start_date: propMgmtDate || null,
+        assigned_manager: propAssignedManager,
       })
       setProperty(updated)
       setPropOwnerCrmId(String(updated.owner_crm_id || ''))
       setPropMgmtDate(updated.management_start_date ? String(updated.management_start_date).slice(0, 10) : '')
+      setPropAssignedManager(String(updated.assigned_manager || ''))
       push({ type: 'success', title: t('propertyDetail.propertyUpdated'), message: t('propertyDetail.propertyUpdatedMsg') })
       setShowEditProperty(false)
     } catch (e) {
@@ -359,14 +365,19 @@ export default function PropertyDetail() {
   return (
     <div className="max-w-7xl space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-lg font-extrabold text-slate-900">{title}</div>
-          <div className="mt-1 text-sm text-slate-500">
-            <Link to="/properties" className="font-semibold text-slate-900 hover:underline">
-              {t('propertyDetail.propertiesLink')}
-            </Link>{' '}
-            / {t('propertyDetail.breadcrumb')}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div>
+            <div className="text-lg font-extrabold text-slate-900">{title}</div>
+            <div className="mt-1 text-sm text-slate-500">
+              <Link to="/properties" className="font-semibold text-slate-900 hover:underline">
+                {t('propertyDetail.propertiesLink')}
+              </Link>{' '}
+              / {t('propertyDetail.breadcrumb')}
+            </div>
           </div>
+          {property?.assigned_manager ? (
+            <ManagerBadge name={property.assigned_manager} variant="detail" />
+          ) : null}
         </div>
         <div className="flex gap-2">
           <Button variant="gold" onClick={() => setShowBulk(true)}>
@@ -448,6 +459,16 @@ export default function PropertyDetail() {
               <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
                 <div className="text-xs font-bold text-slate-500">{t('propertyDetail.labelMgmtStart')}</div>
                 <div className="mt-1 font-semibold text-slate-900">{property.management_start_date || '-'}</div>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:col-span-2">
+                <div className="text-xs font-bold text-slate-500">{t('propertyDetail.labelAssignedManager')}</div>
+                <div className="mt-2">
+                  {property.assigned_manager ? (
+                    <ManagerBadge name={property.assigned_manager} variant="compact" />
+                  ) : (
+                    <span className="text-sm text-slate-500">{t('propertyDetail.assignedManagerEmpty')}</span>
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -668,6 +689,16 @@ export default function PropertyDetail() {
             <div>
               <Label>{t('propertyCreate.managementStartLabel')}</Label>
               <Input value={propMgmtDate} onChange={(e) => setPropMgmtDate(e.target.value)} type="date" />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>{t('propertyCreate.assignedManagerLabel')}</Label>
+              <Input
+                value={propAssignedManager}
+                onChange={(e) => setPropAssignedManager(e.target.value)}
+                placeholder={t('propertyCreate.assignedManagerPh')}
+                maxLength={120}
+              />
+              <div className="mt-1 text-xs text-slate-500">{t('propertyCreate.assignedManagerHelp')}</div>
             </div>
             <div className="sm:col-span-2 flex gap-3 pt-2">
               <Button variant="gold" className="flex-1" type="submit" disabled={propSaving}>

@@ -70,6 +70,9 @@
     "previous": "Previous",
     "next": "Next"
   },
+  "managerBadge": {
+    "managedBy": "Managed by"
+  },
   "statuses": {
     "active": "Active",
     "expired": "Expired",
@@ -323,6 +326,8 @@
     "labelMapsOpen": "Open link",
     "labelOwner": "Owner (CRM)",
     "labelMgmtStart": "Management start date",
+    "labelAssignedManager": "Assigned manager",
+    "assignedManagerEmpty": "No manager assigned yet.",
     "unitsTitle": "Units administration",
     "unitsDesc": "Create/view/archive units on this property",
     "unitsExportName": "units-property-{{id}}",
@@ -412,6 +417,9 @@
     "ownerPh": "Search by name or ID…",
     "ownerFallback": "Owner",
     "managementStartLabel": "Management start date (optional)",
+    "assignedManagerLabel": "Assigned manager",
+    "assignedManagerPh": "e.g. Khalid Al-Otaibi",
+    "assignedManagerHelp": "Name of the internal team member responsible for this property. Shown as a badge across the app.",
     "saving": "Saving…",
     "save": "Save",
     "back": "Back",
@@ -604,6 +612,8 @@
     "colCapacity": "Capacity",
     "colOwner": "Owner",
     "colUnits": "Units",
+    "colAssignedManager": "Assigned manager",
+    "assignedManagerEmpty": "Unassigned",
     "colActions": "Actions",
     "emptyTitle": "No properties yet",
     "emptyTitleFiltered": "No properties match your search",

@@ -12,6 +12,7 @@ import { createOwner, getOwners } from '../../lib/db/owners'
 import { createProperty } from '../../lib/db/properties'
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
 import { translatePropertyCategory, translatePropertyType } from '../../lib/i18n/domainLabels'
+import { naturalCompare } from '../../lib/sort/naturalCompare'
 
 const TYPES = ['Residential', 'Commercial', 'Mixed']
 const CATEGORIES = ['عمارة', 'مجمع سكني', 'فيلا', 'دوبلكس', 'مستودع', 'معرض', 'أرض', 'مبنى تجاري']
@@ -34,6 +35,7 @@ export default function PropertyCreate() {
   const [totalUnitsCapacity, setTotalUnitsCapacity] = useState('')
   const [ownerCrmId, setOwnerCrmId] = useState('')
   const [managementStartDate, setManagementStartDate] = useState('')
+  const [assignedManager, setAssignedManager] = useState('')
   const [electricityMeterCount, setElectricityMeterCount] = useState('0')
   const [waterMeterCount, setWaterMeterCount] = useState('0')
 
@@ -91,7 +93,7 @@ export default function PropertyCreate() {
     setOwnerQuickSaving(true)
     try {
       const created = await createOwner({ full_name: nm, national_id: nat, phone: ph })
-      setOwners((prev) => [...prev, created].sort((a, b) => String(a.full_name).localeCompare(String(b.full_name))))
+      setOwners((prev) => [...prev, created].sort((a, b) => naturalCompare(a.full_name, b.full_name)))
       setOwnerCrmId(created.id)
       setShowOwnerQuick(false)
       setQuickOwnerName('')
@@ -133,6 +135,7 @@ export default function PropertyCreate() {
         water_meter_count: wc,
         owner_crm_id: String(ownerCrmId || '').trim() || null,
         management_start_date: managementStartDate || null,
+        assigned_manager: assignedManager,
       })
       push({ type: 'success', title: t('propertyCreate.toastPropertyCreated') })
       navigate('/properties', { replace: true })
@@ -243,6 +246,17 @@ export default function PropertyCreate() {
             <div>
               <Label>{t('propertyCreate.managementStartLabel')}</Label>
               <Input value={managementStartDate} onChange={(e) => setManagementStartDate(e.target.value)} type="date" />
+            </div>
+
+            <div className="sm:col-span-2">
+              <Label>{t('propertyCreate.assignedManagerLabel')}</Label>
+              <Input
+                value={assignedManager}
+                onChange={(e) => setAssignedManager(e.target.value)}
+                placeholder={t('propertyCreate.assignedManagerPh')}
+                maxLength={120}
+              />
+              <div className="mt-1 text-xs text-slate-500">{t('propertyCreate.assignedManagerHelp')}</div>
             </div>
 
             <div className="sm:col-span-2 mt-2 flex gap-3">

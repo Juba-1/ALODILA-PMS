@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ExportButton } from '../../components/ExportButton'
 import { TargetedPdfButton } from '../../components/TargetedPdfButton'
+import { ManagerBadge } from '../../components/ManagerBadge'
 import { Button } from '../../components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Input, Label } from '../../components/ui/Input'
@@ -72,7 +73,7 @@ export default function PropertiesList() {
   }
 
   const filtered = items.filter((p) => {
-    const hay = `${p.name || ''} ${p.category || ''} ${p.type || ''} ${p.deed_number || ''}`.toLowerCase()
+    const hay = `${p.name || ''} ${p.category || ''} ${p.type || ''} ${p.deed_number || ''} ${p.assigned_manager || ''}`.toLowerCase()
     return hay.includes(q.trim().toLowerCase())
   })
 
@@ -84,6 +85,7 @@ export default function PropertiesList() {
       [t('propertiesList.colDeed')]: p.deed_number || '',
       [t('propertiesList.colMap')]: p.maps_link || '',
       [t('propertiesList.colCapacity')]: p.total_units_capacity,
+      [t('propertiesList.colAssignedManager')]: p.assigned_manager || '',
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, i18n.language])
@@ -147,6 +149,7 @@ export default function PropertiesList() {
                     <th className="px-4 py-3">{t('propertiesList.colName')}</th>
                     <th className="px-4 py-3">{t('propertiesList.colCategory')}</th>
                     <th className="px-4 py-3">{t('propertiesList.colType')}</th>
+                    <th className="px-4 py-3">{t('propertiesList.colAssignedManager')}</th>
                     <th className="px-4 py-3">{t('propertiesList.colDeed')}</th>
                     <th className="px-4 py-3">{t('propertiesList.colMap')}</th>
                     <th className="px-4 py-3">{t('propertiesList.colCapacity')}</th>
@@ -157,7 +160,7 @@ export default function PropertiesList() {
                   {busy ? (
                     Array.from({ length: 6 }).map((_, i) => (
                       <tr key={i} className="border-t border-slate-100">
-                        {Array.from({ length: 7 }).map((__, j) => (
+                        {Array.from({ length: 8 }).map((__, j) => (
                           <td key={j} className="px-4 py-3">
                             <div className="h-4 w-full max-w-[8rem] animate-pulse rounded bg-slate-100" />
                           </td>
@@ -166,7 +169,7 @@ export default function PropertiesList() {
                     ))
                   ) : filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-6">
+                      <td colSpan={8} className="p-6">
                         <EmptyState
                           icon="🏢"
                           title={items.length === 0 ? t('propertiesList.emptyTitle') : t('propertiesList.emptyTitleFiltered')}
@@ -188,6 +191,13 @@ export default function PropertiesList() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-slate-700">{typeLabel(p.type)}</td>
+                        <td className="px-4 py-3">
+                          {p.assigned_manager ? (
+                            <ManagerBadge name={p.assigned_manager} variant="compact" />
+                          ) : (
+                            <span className="text-xs text-slate-400">{t('propertiesList.assignedManagerEmpty')}</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-slate-700">{p.deed_number || '-'}</td>
                         <td className="px-4 py-3">
                           {p.maps_link ? (

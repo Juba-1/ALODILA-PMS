@@ -1,4 +1,5 @@
 import { supabase } from '../supabase/client'
+import { naturalCompare } from '../sort/naturalCompare'
 
 export async function getActiveUnitsByPropertyId(propertyId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
@@ -8,10 +9,9 @@ export async function getActiveUnitsByPropertyId(propertyId) {
     .select('id,unit_name,type,target_rent_value,rooms_count,status,electricity_meter_ref,water_meter_ref,created_at,updated_at')
     .eq('property_id', propertyId)
     .eq('is_deleted', false)
-    .order('unit_name', { ascending: true })
 
   if (error) throw error
-  return data || []
+  return (data || []).slice().sort((a, b) => naturalCompare(a?.unit_name, b?.unit_name))
 }
 
 export async function getActiveUnits() {
@@ -34,13 +34,17 @@ export async function getActiveUnits() {
     `,
     )
     .eq('is_deleted', false)
-    .order('unit_name', { ascending: true })
 
   if (error) throw error
-  return (data || []).map((u) => ({
-    ...u,
-    property_name: u?.property?.name || '',
-  }))
+  return (data || [])
+    .map((u) => ({
+      ...u,
+      property_name: u?.property?.name || '',
+    }))
+    .sort((a, b) => {
+      const byProp = naturalCompare(a.property_name, b.property_name)
+      return byProp !== 0 ? byProp : naturalCompare(a.unit_name, b.unit_name)
+    })
 }
 
 export async function getUnitsInventory() {
@@ -63,14 +67,18 @@ export async function getUnitsInventory() {
     `,
     )
     .eq('is_deleted', false)
-    .order('unit_name', { ascending: true })
 
   if (error) throw error
-  return (data || []).map((u) => ({
-    ...u,
-    property_name: u?.property?.name || '',
-    property_category: u?.property?.category || '',
-  }))
+  return (data || [])
+    .map((u) => ({
+      ...u,
+      property_name: u?.property?.name || '',
+      property_category: u?.property?.category || '',
+    }))
+    .sort((a, b) => {
+      const byProp = naturalCompare(a.property_name, b.property_name)
+      return byProp !== 0 ? byProp : naturalCompare(a.unit_name, b.unit_name)
+    })
 }
 
 export async function bulkCreateUnits(units) {

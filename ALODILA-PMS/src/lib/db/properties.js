@@ -1,7 +1,18 @@
 import { supabase } from '../supabase/client'
+import { naturalCompare } from '../sort/naturalCompare'
+
+const PROPERTY_COLS =
+  'id,name,category,type,deed_number,maps_link,total_units_capacity,electricity_meter_count,water_meter_count,owner_crm_id,management_start_date,assigned_manager,created_at,updated_at'
 
 /** Normalize CRM owner UUID for insert/update (empty → null). */
 function normalizeOwnerCrmId(value) {
+  if (value == null) return null
+  const s = String(value).trim()
+  return s.length ? s : null
+}
+
+/** Normalize free-text manager name (empty → null, trimmed). */
+function normalizeAssignedManager(value) {
   if (value == null) return null
   const s = String(value).trim()
   return s.length ? s : null
@@ -12,14 +23,11 @@ export async function getActiveProperties() {
 
   const { data, error } = await supabase
     .from('properties')
-    .select(
-      'id,name,category,type,deed_number,maps_link,total_units_capacity,electricity_meter_count,water_meter_count,owner_crm_id,management_start_date,created_at,updated_at',
-    )
+    .select(PROPERTY_COLS)
     .eq('is_deleted', false)
-    .order('name', { ascending: true })
 
   if (error) throw error
-  return data || []
+  return (data || []).slice().sort((a, b) => naturalCompare(a?.name, b?.name))
 }
 
 export async function getPropertyById(propertyId) {
@@ -27,9 +35,7 @@ export async function getPropertyById(propertyId) {
 
   const { data, error } = await supabase
     .from('properties')
-    .select(
-      'id,name,category,type,deed_number,maps_link,total_units_capacity,electricity_meter_count,water_meter_count,owner_crm_id,management_start_date,created_at,updated_at',
-    )
+    .select(PROPERTY_COLS)
     .eq('id', propertyId)
     .eq('is_deleted', false)
     .single()
@@ -49,6 +55,7 @@ export async function createProperty({
   water_meter_count,
   owner_crm_id,
   management_start_date,
+  assigned_manager,
 }) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
@@ -74,15 +81,14 @@ export async function createProperty({
     owner_id: user.id,
     owner_crm_id: normalizeOwnerCrmId(owner_crm_id),
     management_start_date: management_start_date || null,
+    assigned_manager: normalizeAssignedManager(assigned_manager),
     is_deleted: false,
   }
 
   const { data, error } = await supabase
     .from('properties')
     .insert(payload)
-    .select(
-      'id,name,category,type,deed_number,maps_link,total_units_capacity,electricity_meter_count,water_meter_count,owner_crm_id,management_start_date,created_at,updated_at',
-    )
+    .select(PROPERTY_COLS)
     .single()
 
   if (error) throw error
@@ -102,6 +108,7 @@ export async function updateProperty(propertyId, updates) {
   if ('total_units_capacity' in (updates || {})) payload.total_units_capacity = Number(updates.total_units_capacity)
   if ('owner_crm_id' in (updates || {})) payload.owner_crm_id = normalizeOwnerCrmId(updates.owner_crm_id)
   if ('management_start_date' in (updates || {})) payload.management_start_date = updates.management_start_date || null
+  if ('assigned_manager' in (updates || {})) payload.assigned_manager = normalizeAssignedManager(updates.assigned_manager)
   if ('electricity_meter_count' in (updates || {})) {
     const n = Number(updates.electricity_meter_count)
     payload.electricity_meter_count = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
@@ -116,9 +123,7 @@ export async function updateProperty(propertyId, updates) {
     .update(payload)
     .eq('id', propertyId)
     .eq('is_deleted', false)
-    .select(
-      'id,name,category,type,deed_number,maps_link,total_units_capacity,electricity_meter_count,water_meter_count,owner_crm_id,management_start_date,created_at,updated_at',
-    )
+    .select(PROPERTY_COLS)
     .single()
 
   if (error) throw error

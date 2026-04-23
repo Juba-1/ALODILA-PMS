@@ -61,9 +61,9 @@ export function FinancialTimeline({ invoices = [], summary, currency }) {
 
   const paid = summary?.paidCount ?? enriched.filter((e) => e._status === 'paid').length
   const overdue = summary?.overdueCount ?? enriched.filter((e) => e._status === 'overdue').length
-  const pending =
-    (summary?.pendingCount ?? 0) + (summary?.partialCount ?? 0) ||
-    enriched.filter((e) => e._status === 'pending' || e._status === 'partial').length
+  const pending = summary
+    ? ((summary.pendingCount ?? 0) + (summary.partialCount ?? 0))
+    : enriched.filter((e) => e._status === 'pending' || e._status === 'partial').length
 
   if (!enriched.length) {
     return (

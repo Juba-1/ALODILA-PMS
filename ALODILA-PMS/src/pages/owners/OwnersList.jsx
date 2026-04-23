@@ -10,6 +10,7 @@ import { useToastDispatch } from '../../components/toast/ToastProvider'
 import { createOwner, getOwners, softDeleteOwner, updateOwner } from '../../lib/db/owners'
 import { reportLoadFailure } from '../../lib/supabase/authErrors'
 import { exportReportPdf } from '../../lib/print/targetedPdf'
+import { naturalCompare } from '../../lib/sort/naturalCompare'
 
 export default function OwnersList() {
   const { t, i18n } = useTranslation()
@@ -81,7 +82,7 @@ export default function OwnersList() {
         toastPush({ type: 'success', title: t('ownersList.toastUpdatedTitle'), message: t('ownersList.toastUpdatedMsg') })
       } else {
         const created = await createOwner({ full_name: fn, national_id: nid, phone: ph })
-        setItems((prev) => [...prev, created].sort((a, b) => String(a.full_name).localeCompare(String(b.full_name))))
+        setItems((prev) => [...prev, created].sort((a, b) => naturalCompare(a.full_name, b.full_name)))
         toastPush({ type: 'success', title: t('ownersList.toastCreatedTitle'), message: t('ownersList.toastCreatedMsg') })
       }
       setModalOpen(false)

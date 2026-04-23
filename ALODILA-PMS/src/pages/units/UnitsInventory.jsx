@@ -15,6 +15,7 @@ import { getUnitsInventory, updateUnit } from '../../lib/db/units'
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
 import { exportReportPdf } from '../../lib/print/targetedPdf'
 import { translateUnitStatus } from '../../lib/i18n/domainLabels'
+import { naturalCompare } from '../../lib/sort/naturalCompare'
 
 const UNIT_TYPES = ['Residential', 'Commercial', 'Mixed']
 const UNIT_STATUSES_AR = ['شاغرة', 'مؤجرة', 'تحت الصيانة', 'غير متاحة']
@@ -113,7 +114,7 @@ export default function UnitsInventory() {
       const c = String(u.property_category || '').trim()
       if (c) s.add(c)
     }
-    return [...s].sort((a, b) => a.localeCompare(b))
+    return [...s].sort((a, b) => naturalCompare(a, b))
   }, [items])
 
   const filtered = useMemo(() => {
