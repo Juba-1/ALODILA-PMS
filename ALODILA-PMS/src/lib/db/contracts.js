@@ -1,4 +1,5 @@
 import { supabase } from '../supabase/client'
+import { deletePendingInvoicesForContract } from './contractFinance'
 
 const UTILITY_TYPES = ['مستقل', 'مشترك', 'شامل', 'مقطوع']
 
@@ -15,9 +16,33 @@ function normalizeContractUtilityFields(input) {
   return { utility_payment_type, utility_flat_amount_sar, handover_notes }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function normalizeSecondaryUnitIds(input, mainUnitId) {
+  const raw = Array.isArray(input?.secondary_unit_ids) ? input.secondary_unit_ids : []
+  const main = mainUnitId ? String(mainUnitId) : ''
+  const seen = new Set()
+  const ids = []
+  for (const id of raw) {
+    const s = String(id || '').trim()
+    if (!UUID_RE.test(s) || s === main || seen.has(s)) continue
+    seen.add(s)
+    ids.push(s)
+  }
+  return ids
+}
+
+function collectContractUnitIds(contractRow) {
+  const ids = []
+  if (contractRow?.unit_id) ids.push(contractRow.unit_id)
+  for (const id of normalizeSecondaryUnitIds(contractRow, contractRow?.unit_id)) ids.push(id)
+  return [...new Set(ids)]
+}
+
 const CONTRACT_SELECT = `
       id,
       unit_id,
+      secondary_unit_ids,
       tenant_id,
       ejar_contract_number,
       start_date,
@@ -68,14 +93,18 @@ async function refreshUnitOccupancyFromContracts(unitId) {
 
   const { data: activeRows, error: activeErr } = await supabase
     .from('contracts')
-    .select('id')
+    .select('id, unit_id, secondary_unit_ids')
     .eq('is_deleted', false)
-    .eq('unit_id', unitId)
     .eq('status', 'ساري')
 
   if (activeErr) throw activeErr
 
-  const activeRentals = (activeRows || []).length
+  const uid = String(unitId)
+  const activeRentals = (activeRows || []).filter((c) => {
+    if (String(c?.unit_id || '') === uid) return true
+    const secondary = normalizeSecondaryUnitIds(c, c?.unit_id)
+    return secondary.includes(uid)
+  }).length
   const nextStatus = activeRentals > 0 ? 'مؤجرة' : currentStatus === 'مؤجرة' ? 'شاغرة' : currentStatus
 
   if (nextStatus === currentStatus) return
@@ -152,9 +181,11 @@ export async function createContract(input) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
   const util = normalizeContractUtilityFields(input)
+  const secondary_unit_ids = normalizeSecondaryUnitIds(input, input.unit_id)
   const payload = {
     tenant_id: input.tenant_id,
     unit_id: input.unit_id,
+    secondary_unit_ids,
     ejar_contract_number: input.ejar_contract_number ? String(input.ejar_contract_number).trim() : null,
     start_date: input.start_date,
     end_date: input.end_date,
@@ -178,7 +209,9 @@ export async function createContract(input) {
   if (error) throw error
 
   try {
-    await refreshUnitOccupancyFromContracts(payload.unit_id)
+    for (const uid of collectContractUnitIds({ unit_id: payload.unit_id, secondary_unit_ids })) {
+      await refreshUnitOccupancyFromContracts(uid)
+    }
   } catch (e) {
     // Best-effort consistency repair: if occupancy sync fails, hide the orphan contract row from the UI layer.
     try {
@@ -197,7 +230,7 @@ export async function updateContract(contractId, updates) {
 
   const { data: before, error: beforeErr } = await supabase
     .from('contracts')
-    .select('id,unit_id')
+    .select('id, unit_id, secondary_unit_ids')
     .eq('id', contractId)
     .eq('is_deleted', false)
     .maybeSingle()
@@ -206,9 +239,11 @@ export async function updateContract(contractId, updates) {
   if (!before?.id) throw new Error('Contract not found')
 
   const util = normalizeContractUtilityFields(updates)
+  const secondary_unit_ids = normalizeSecondaryUnitIds(updates, updates.unit_id)
   const payload = {
     tenant_id: updates.tenant_id,
     unit_id: updates.unit_id,
+    secondary_unit_ids,
     ejar_contract_number: updates.ejar_contract_number ? String(updates.ejar_contract_number).trim() : null,
     start_date: updates.start_date,
     end_date: updates.end_date,
@@ -232,11 +267,50 @@ export async function updateContract(contractId, updates) {
 
   if (error) throw error
 
-  const prevUnitId = before.unit_id
-  const nextUnitId = payload.unit_id
+  const unitsToRefresh = new Set([
+    ...collectContractUnitIds(before),
+    ...collectContractUnitIds({ unit_id: payload.unit_id, secondary_unit_ids }),
+  ])
+  for (const uid of unitsToRefresh) {
+    await refreshUnitOccupancyFromContracts(uid)
+  }
 
-  await refreshUnitOccupancyFromContracts(nextUnitId)
-  if (prevUnitId && prevUnitId !== nextUnitId) await refreshUnitOccupancyFromContracts(prevUnitId)
+  return mapContractRow(data)
+}
+
+/**
+ * Early termination with settlement: mark contract ended, free all linked units,
+ * and clear unrealized pending invoices.
+ */
+export async function terminateContractAndSettle(contractId) {
+  if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
+
+  const { data: before, error: beforeErr } = await supabase
+    .from('contracts')
+    .select('id, unit_id, secondary_unit_ids, status')
+    .eq('id', contractId)
+    .eq('is_deleted', false)
+    .maybeSingle()
+
+  if (beforeErr) throw beforeErr
+  if (!before?.id) throw new Error('Contract not found')
+  if (before.status === 'منتهي') throw new Error('العقد منتهٍ مسبقاً.')
+
+  const { data, error } = await supabase
+    .from('contracts')
+    .update({ status: 'منتهي' })
+    .eq('id', contractId)
+    .eq('is_deleted', false)
+    .select(CONTRACT_SELECT)
+    .single()
+
+  if (error) throw error
+
+  await deletePendingInvoicesForContract(contractId)
+
+  for (const uid of collectContractUnitIds(before)) {
+    await refreshUnitOccupancyFromContracts(uid)
+  }
 
   return mapContractRow(data)
 }
@@ -246,7 +320,7 @@ export async function softDeleteContract(contractId) {
 
   const { data: row, error: rowErr } = await supabase
     .from('contracts')
-    .select('unit_id')
+    .select('unit_id, secondary_unit_ids')
     .eq('id', contractId)
     .eq('is_deleted', false)
     .maybeSingle()
@@ -255,6 +329,8 @@ export async function softDeleteContract(contractId) {
   const { error } = await supabase.from('contracts').update({ is_deleted: true }).eq('id', contractId)
   if (error) throw error
 
-  if (row?.unit_id) await refreshUnitOccupancyFromContracts(row.unit_id)
+  for (const uid of collectContractUnitIds(row || {})) {
+    await refreshUnitOccupancyFromContracts(uid)
+  }
 }
 

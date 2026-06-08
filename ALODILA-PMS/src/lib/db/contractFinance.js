@@ -12,6 +12,7 @@ import { moneyToCents } from '../money/cents'
 const CONTRACT_FINANCE_SELECT = `
   id,
   unit_id,
+  secondary_unit_ids,
   tenant_id,
   ejar_contract_number,
   start_date,
@@ -115,6 +116,113 @@ export async function generateInstallmentsForContract(contract, options = {}) {
 
   if (error) throw error
   return { inserted: data || [], skipped: false, count: payload.length }
+}
+
+/**
+ * Soft-delete only invoices classified as pending (no payments, not yet overdue).
+ * Paid, partial, and overdue invoices are never touched.
+ */
+export async function deletePendingInvoicesForContract(contractId) {
+  if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
+  if (!contractId) throw new Error('contractId is required')
+
+  const { data: invoiceRows, error: iErr } = await supabase
+    .from('invoices')
+    .select(INVOICE_FINANCE_SELECT)
+    .eq('contract_id', contractId)
+    .eq('is_deleted', false)
+
+  if (iErr) throw iErr
+
+  const pendingIds = (invoiceRows || [])
+    .map(mapInvoiceWithPaid)
+    .filter((inv) => classifyInstallment(inv) === 'pending')
+    .map((inv) => inv.id)
+
+  if (!pendingIds.length) return { deletedCount: 0 }
+
+  const { error: delErr } = await supabase.from('invoices').update({ is_deleted: true }).in('id', pendingIds)
+  if (delErr) throw delErr
+
+  return { deletedCount: pendingIds.length }
+}
+
+/**
+ * Regenerate pending installments on contract edit: remove pending invoices,
+ * then insert uniform installments for periods not covered by paid/partial/overdue rows.
+ */
+export async function regeneratePendingInstallmentsForContract(contract, options = {}) {
+  if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
+  if (!contract?.id) throw new Error('contract.id is required')
+
+  if (!contract.start_date || !contract.end_date) {
+    throw new Error('لا يمكن إعادة احتساب الدفعات بدون تاريخي بداية ونهاية صحيحين للعقد.')
+  }
+  const contractCents = moneyToCents(contract.contract_value)
+  if (!Number.isFinite(contractCents) || contractCents <= 0) {
+    throw new Error('قيمة العقد الإجمالية يجب أن تكون أكبر من صفر قبل إعادة احتساب الدفعات.')
+  }
+
+  const { vat_applicable = false } = options
+
+  const { data: invoiceRows, error: iErr } = await supabase
+    .from('invoices')
+    .select(INVOICE_FINANCE_SELECT)
+    .eq('contract_id', contract.id)
+    .eq('is_deleted', false)
+
+  if (iErr) throw iErr
+
+  const invoices = (invoiceRows || []).map(mapInvoiceWithPaid)
+  const pendingIds = invoices.filter((inv) => classifyInstallment(inv) === 'pending').map((inv) => inv.id)
+
+  if (pendingIds.length) {
+    const { error: delErr } = await supabase.from('invoices').update({ is_deleted: true }).in('id', pendingIds)
+    if (delErr) throw delErr
+  }
+
+  const retainedDueDates = new Set(
+    invoices.filter((inv) => !pendingIds.includes(inv.id)).map((inv) => String(inv.due_date || '')),
+  )
+
+  const { installments, count: totalInstallmentsCount } = computeInstallmentSchedule({
+    contract_value: contract.contract_value,
+    start_date: contract.start_date,
+    end_date: contract.end_date,
+    billing_cycle: contract.billing_cycle,
+    utility_payment_type: contract.utility_payment_type,
+    utility_flat_amount_sar: contract.utility_flat_amount_sar,
+    vat_applicable,
+  })
+
+  if (!installments.length) return { inserted: [], deletedCount: pendingIds.length, count: 0 }
+
+  const toInsert = installments.filter((inst) => !retainedDueDates.has(String(inst.due_date || '')))
+  if (!toInsert.length) {
+    return { inserted: [], deletedCount: pendingIds.length, count: 0, totalInstallmentsCount }
+  }
+
+  const payload = toInsert.map((inst) => ({
+    contract_id: contract.id,
+    due_date: inst.due_date,
+    subtotal_amount: inst.subtotal_amount,
+    vat_applicable: Boolean(vat_applicable),
+    total_amount: inst.total_amount,
+    is_deleted: false,
+  }))
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .insert(payload)
+    .select('id, contract_id, due_date, subtotal_amount, total_amount, vat_applicable, created_at')
+
+  if (error) throw error
+  return {
+    inserted: data || [],
+    deletedCount: pendingIds.length,
+    count: payload.length,
+    totalInstallmentsCount,
+  }
 }
 
 /**

@@ -14,7 +14,7 @@ import { getActiveProperties } from '../../lib/db/properties'
 import { getTenants } from '../../lib/db/tenants'
 import { getActiveUnits } from '../../lib/db/units'
 import { createContract, getContracts, softDeleteContract, updateContract } from '../../lib/db/contracts'
-import { generateInstallmentsForContract } from '../../lib/db/contractFinance'
+import { generateInstallmentsForContract, regeneratePendingInstallmentsForContract } from '../../lib/db/contractFinance'
 import { reportLoadFailure } from '../../lib/supabase/authErrors'
 import { translateContractStatus, translateUtilityPayment } from '../../lib/i18n/domainLabels'
 import ContractForm from './ContractForm'
@@ -151,10 +151,21 @@ export default function ContractsList() {
     }
 
     const uid = values.unit_id
+    const secondaryIds = Array.isArray(values.secondary_unit_ids) ? values.secondary_unit_ids : []
     const excludeId = editing?.id
-    const unitBlocked = items.some(
-      (c) => c.status === 'ساري' && c.id !== excludeId && String(c.unit_id || c?.unit?.id || '') === String(uid),
-    )
+    const allLinkedIds = [uid, ...secondaryIds].filter(Boolean)
+
+    function isUnitBlockedByActiveContract(unitIdToCheck) {
+      return items.some((c) => {
+        if (c.status !== 'ساري' || c.id === excludeId) return false
+        const main = String(c.unit_id || c?.unit?.id || '')
+        if (main === String(unitIdToCheck)) return true
+        const secondary = Array.isArray(c.secondary_unit_ids) ? c.secondary_unit_ids : []
+        return secondary.some((s) => String(s) === String(unitIdToCheck))
+      })
+    }
+
+    const unitBlocked = values.status === 'ساري' && allLinkedIds.some((id) => isUnitBlockedByActiveContract(id))
     if (values.status === 'ساري' && unitBlocked) {
       toastPush({
         type: 'error',
@@ -172,6 +183,27 @@ export default function ContractsList() {
         const updated = await updateContract(editing.id, values)
         setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
         toastPush({ type: 'success', title: t('contractsList.toastUpdatedTitle'), message: t('contractsList.toastUpdatedMsg') })
+        if (schedulePrefs.regeneratePending && updated?.id) {
+          try {
+            const gen = await regeneratePendingInstallmentsForContract(updated, {
+              vat_applicable: schedulePrefs.vat_applicable === true,
+            })
+            if (gen.count > 0 || gen.deletedCount > 0) {
+              toastPush({
+                type: 'success',
+                title: 'تم إعادة احتساب الدفعات',
+                message: `حُذفت ${gen.deletedCount} دفعة معلّقة وأُنشئت ${gen.count} دفعة جديدة.`,
+              })
+            }
+          } catch (schedErr) {
+            console.warn('[ContractsList] regenerate-pending failed', schedErr)
+            toastPush({
+              type: 'error',
+              title: t('contractsList.toastScheduleFailTitle'),
+              message: schedErr?.message || t('contractsList.toastScheduleFailMsg'),
+            })
+          }
+        }
       } else {
         const created = await createContract(values)
         setItems((prev) => [created, ...prev])

@@ -21,16 +21,22 @@ function contractUnitId(c) {
   return c?.unit_id || c?.unit?.id || ''
 }
 
-/** Units blocked for *new* ساري contracts: another row already ساري on same unit. */
+function contractSecondaryUnitIds(c) {
+  if (!Array.isArray(c?.secondary_unit_ids)) return []
+  return c.secondary_unit_ids.filter(Boolean)
+}
+
+/** Units blocked for *new* ساري contracts: main or secondary on another ساري row. */
 function buildOccupiedUnitMap(existingContracts, excludeContractId) {
   const m = new Map()
   for (const c of existingContracts || []) {
     if (c?.status !== 'ساري') continue
-    const uid = contractUnitId(c)
-    if (!uid) continue
     if (excludeContractId && c.id === excludeContractId) continue
     const label = c.tenant_full_name || ''
-    m.set(uid, label)
+    const linked = [contractUnitId(c), ...contractSecondaryUnitIds(c)].filter(Boolean)
+    for (const uid of linked) {
+      if (!m.has(uid)) m.set(uid, label)
+    }
   }
   return m
 }
@@ -53,7 +59,9 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
   const [utilityType, setUtilityType] = useState('مستقل')
   const [utilityFlat, setUtilityFlat] = useState('')
   const [handoverNotes, setHandoverNotes] = useState('')
+  const [secondaryUnitIds, setSecondaryUnitIds] = useState([])
   const [autoSchedule, setAutoSchedule] = useState(true)
+  const [regeneratePending, setRegeneratePending] = useState(false)
   const [vatApplicable, setVatApplicable] = useState(false)
 
   const [tenantQ, setTenantQ] = useState('')
@@ -112,7 +120,9 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
         : '',
     )
     setHandoverNotes(initialValue?.handover_notes != null ? String(initialValue.handover_notes) : '')
+    setSecondaryUnitIds(Array.isArray(initialValue?.secondary_unit_ids) ? [...initialValue.secondary_unit_ids] : [])
     setAutoSchedule(!isEdit)
+    setRegeneratePending(false)
     setVatApplicable(false)
     setUserEditedContractValue(false)
     setFormError('')
@@ -130,6 +140,11 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
     const total = months > 0 ? Math.round(tr * months * 100) / 100 : tr
     setValue(String(total))
   }, [unitId, units, isEdit, userEditedContractValue, startDate, endDate])
+
+  useEffect(() => {
+    if (!unitId) return
+    setSecondaryUnitIds((prev) => (prev.includes(unitId) ? prev.filter((id) => id !== unitId) : prev))
+  }, [unitId])
 
   useEffect(() => {
     if (status !== 'ساري' || !unitId) return
@@ -178,7 +193,27 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
       setFormError(t('validation.unitOccupied'))
       return false
     }
+    for (const sid of secondaryUnitIds) {
+      const su = (units || []).find((x) => x.id === sid)
+      if (!su) {
+        setFormError(t('validation.selectUnit'))
+        return false
+      }
+      if (status === 'ساري' && !isUnitSelectableForStatus(su, status)) {
+        setFormError(t('validation.unitOccupied'))
+        return false
+      }
+    }
     return true
+  }
+
+  const secondaryUnitCandidates = useMemo(() => {
+    return (units || []).filter((u) => u?.id && u.id !== unitId)
+  }, [units, unitId])
+
+  function toggleSecondaryUnit(id) {
+    setSecondaryUnitIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+    setFormError('')
   }
 
   const occupiedBadge = t('contractsForm.occupiedBadge')
@@ -215,6 +250,7 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
               utility_payment_type: utilityType,
               utility_flat_amount_sar: utilityType === 'مقطوع' ? utilityFlat : null,
               handover_notes: handoverNotes.trim() ? handoverNotes.trim() : null,
+              secondary_unit_ids: secondaryUnitIds,
             }
             const zr = contractFormPayloadSchema.safeParse(payload)
             if (!zr.success) {
@@ -235,8 +271,10 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
               utility_payment_type: utilityType,
               utility_flat_amount_sar: utilityType === 'مقطوع' ? utilityFlat : null,
               handover_notes: handoverNotes.trim() ? handoverNotes.trim() : null,
+              secondary_unit_ids: secondaryUnitIds,
               _schedule: {
                 auto: Boolean(autoSchedule) && !isEdit,
+                regeneratePending: Boolean(regeneratePending) && isEdit,
                 vat_applicable: Boolean(vatApplicable),
               },
             })
@@ -294,6 +332,49 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
                 })}
               </Select>
             </div>
+          </div>
+
+          <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+            <Label>الوحدات الإضافية المرتبطة</Label>
+            <p className="mt-1 text-xs text-slate-500">اختياري — وحدات إضافية تُؤجَّر ضمن نفس العقد (تأجير مجمّع B2B).</p>
+            <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
+              {secondaryUnitCandidates.length === 0 ? (
+                <p className="px-2 py-3 text-xs text-slate-500">لا توجد وحدات أخرى متاحة للاختيار.</p>
+              ) : (
+                secondaryUnitCandidates.map((u) => {
+                  const blocked = occupiedByUnit.has(u.id)
+                  const disabled = status === 'ساري' && !isUnitSelectableForStatus(u, 'ساري')
+                  const checked = secondaryUnitIds.includes(u.id)
+                  const label = `${u.unit_name || ''}${u.property_name ? ` — ${u.property_name}` : ''}`
+                  return (
+                    <label
+                      key={u.id}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-slate-50',
+                        disabled && 'cursor-not-allowed opacity-50',
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-emerald-600"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => toggleSecondaryUnit(u.id)}
+                      />
+                      <span className="text-slate-800">
+                        {label}
+                        {blocked ? ` ${occupiedBadge}` : ''}
+                      </span>
+                    </label>
+                  )
+                })
+              )}
+            </div>
+            {secondaryUnitIds.length > 0 ? (
+              <p className="mt-2 text-xs font-semibold text-emerald-800">
+                {secondaryUnitIds.length} وحدة إضافية محددة
+              </p>
+            ) : null}
           </div>
 
           <div className="sm:col-span-2">
@@ -434,9 +515,15 @@ export default function ContractForm({ initialValue, tenants, units, existingCon
                   {t('contractsForm.autoGenerateToggle')}
                 </label>
               ) : (
-                <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">
-                  {t('contractsForm.autoGenerateEditOnly')}
-                </span>
+                <label className="inline-flex shrink-0 cursor-pointer select-none items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-amber-900 ring-1 ring-amber-200 hover:bg-amber-50">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-amber-600"
+                    checked={regeneratePending}
+                    onChange={(e) => setRegeneratePending(e.target.checked)}
+                  />
+                  إعادة احتساب وتوليد الدفعات المتبقية
+                </label>
               )}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">

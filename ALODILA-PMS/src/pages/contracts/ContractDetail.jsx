@@ -7,6 +7,7 @@ import { FinancialTimeline } from '../../components/FinancialTimeline'
 import { AiUnavailableBanner } from '../../components/AiUnavailableBanner'
 import { useToastDispatch } from '../../components/toast/ToastProvider'
 import { getContractFinance, generateInstallmentsForContract } from '../../lib/db/contractFinance'
+import { terminateContractAndSettle } from '../../lib/db/contracts'
 import { summarizeContractFinance } from '../../lib/ai/financialAdvisor'
 import { hasViteGroqApiKey, isAiUnavailableError } from '../../lib/ai/groqEnv'
 import { reportLoadFailure } from '../../lib/supabase/authErrors'
@@ -50,6 +51,7 @@ export default function ContractDetail() {
   const [aiText, setAiText] = useState('')
   const [aiError, setAiError] = useState('')
   const [scheduling, setScheduling] = useState(false)
+  const [terminating, setTerminating] = useState(false)
 
   const refresh = useCallback(async () => {
     setBusy(true)
@@ -89,6 +91,28 @@ export default function ContractDetail() {
       setAiBusy(false)
     }
   }, [data])
+
+  async function onTerminateAndSettle() {
+    if (!data?.contract?.id) return
+    const ok = window.confirm(
+      'هل أنت متأكد من إنهاء العقد والتسوية؟\n\nسيتم:\n• تغيير حالة العقد إلى «منتهي»\n• إخلاء جميع الوحدات المرتبطة (الرئيسية والإضافية)\n• حذف جميع الدفعات المعلّقة غير المحققة',
+    )
+    if (!ok) return
+    setTerminating(true)
+    try {
+      await terminateContractAndSettle(data.contract.id)
+      push({
+        type: 'success',
+        title: 'تم إنهاء العقد والتسوية',
+        message: 'أُنهي العقد وأُخليت الوحدات وحُذفت الدفعات المعلّقة.',
+      })
+      await refresh()
+    } catch (e) {
+      reportLoadFailure((p) => toastPushRef.current?.(p), e, 'تعذّر إنهاء العقد والتسوية', true)
+    } finally {
+      setTerminating(false)
+    }
+  }
 
   async function onGenerateSchedule({ replaceExisting } = {}) {
     if (!data?.contract?.id) return
@@ -143,10 +167,15 @@ export default function ContractDetail() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="subtle" onClick={() => onGenerateSchedule({ replaceExisting: false })} disabled={busy || scheduling}>
+          {contract?.status === 'ساري' ? (
+            <Button variant="primary" onClick={onTerminateAndSettle} disabled={busy || terminating || scheduling}>
+              {terminating ? 'جاري الإنهاء…' : 'إنهاء العقد والتسوية'}
+            </Button>
+          ) : null}
+          <Button variant="subtle" onClick={() => onGenerateSchedule({ replaceExisting: false })} disabled={busy || scheduling || terminating}>
             {t('contractDetail.generateSchedule')}
           </Button>
-          <Button variant="ghost" onClick={() => onGenerateSchedule({ replaceExisting: true })} disabled={busy || scheduling}>
+          <Button variant="ghost" onClick={() => onGenerateSchedule({ replaceExisting: true })} disabled={busy || scheduling || terminating}>
             {t('contractDetail.regenerateSchedule')}
           </Button>
           <Link to="/contracts">

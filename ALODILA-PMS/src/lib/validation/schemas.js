@@ -55,6 +55,7 @@ export const contractFormPayloadSchema = z
     utility_payment_type: UTILITY_PAYMENT_TYPES,
     utility_flat_amount_sar: z.union([z.string(), z.number()]).optional().nullable(),
     handover_notes: z.string().max(8000).optional().nullable(),
+    secondary_unit_ids: z.array(z.string().regex(UUID, 'معرّف وحدة غير صالح')).optional().default([]),
   })
   .refine((data) => parseIsoDate(data.start_date) != null, { message: 'تاريخ البداية غير صالح', path: ['start_date'] })
   .refine((data) => parseIsoDate(data.end_date) != null, { message: 'تاريخ النهاية غير صالح', path: ['end_date'] })
