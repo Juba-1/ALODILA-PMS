@@ -2,7 +2,10 @@
   "app": {
     "init": "جاري التهيئة...",
     "supabaseMissing": "إعداد Supabase غير مكتمل",
-    "supabaseHint": "يرجى ضبط متغيرات البيئة: VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY."
+    "supabaseHint": "يرجى ضبط متغيرات البيئة: VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY.",
+    "accessDeniedTitle": "غير مصرح",
+    "accessDeniedBody": "حسابك غير مسموح له بفتح هذا الجزء من النظام.",
+    "accessDeniedHome": "العودة إلى صفحتك"
   },
   "lang": {
     "ar": "العربية",

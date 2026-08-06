@@ -1,4 +1,12 @@
 import { supabase } from '../supabase/client'
+import {
+  resolveReadScope,
+  withCompanyEq,
+  resolveWriteCompany,
+  withWriteCompanyEq,
+  stampInsert,
+  assertParentInWriteCompany,
+} from '../tenancy/index.js'
 
 export const MAINTENANCE_STATUSES = ['مفتوح', 'قيد المعالجة', 'مكتمل']
 
@@ -12,7 +20,8 @@ export function maintenanceStatusBadgeClass(status) {
 export async function getRequests() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('maintenance_requests')
     .select(
       `
@@ -33,6 +42,9 @@ export async function getRequests() {
     )
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
+  q = withCompanyEq(q, scope)
+
+  const { data, error } = await q
 
   if (error) throw error
 
@@ -66,9 +78,13 @@ export async function createRequest(input) {
     is_deleted: false,
   }
 
+  const write = await resolveWriteCompany()
+  await assertParentInWriteCompany('units', payload.unit_id, write.companyId, 'unit')
+  const stamped = stampInsert(payload, write)
+
   const { data, error } = await supabase
     .from('maintenance_requests')
-    .insert(payload)
+    .insert(stamped)
     .select(
       `
       id,
@@ -119,11 +135,17 @@ export async function updateRequest(requestId, updates) {
     status,
   }
 
-  const { data, error } = await supabase
+  const write = await resolveWriteCompany()
+  await assertParentInWriteCompany('units', payload.unit_id, write.companyId, 'unit')
+
+  let q = supabase
     .from('maintenance_requests')
     .update(payload)
     .eq('id', requestId)
     .eq('is_deleted', false)
+  q = withWriteCompanyEq(q, write)
+
+  const { data, error } = await q
     .select(
       `
       id,
@@ -157,6 +179,10 @@ export async function updateRequest(requestId, updates) {
 export async function softDeleteRequest(requestId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { error } = await supabase.from('maintenance_requests').update({ is_deleted: true }).eq('id', requestId)
+  const write = await resolveWriteCompany()
+  let q = supabase.from('maintenance_requests').update({ is_deleted: true }).eq('id', requestId)
+  q = withWriteCompanyEq(q, write)
+  const { data, error } = await q.select('id').maybeSingle()
   if (error) throw error
+  if (!data) throw new Error('Maintenance request not found or out of company scope.')
 }

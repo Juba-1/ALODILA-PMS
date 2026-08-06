@@ -53,7 +53,7 @@ export default function TenantStatement() {
         <div>
           <div className="text-lg font-extrabold text-slate-900">{title}</div>
           <div className="mt-1 text-sm text-slate-500">
-            <Link to="/tenants" className="font-semibold text-slate-900 hover:underline">
+            <Link to="/company/tenants" className="font-semibold text-slate-900 hover:underline">
               {t('tenantStatement.tenantsLink')}
             </Link>{' '}
             / {t('tenantStatement.breadcrumb')}
@@ -63,7 +63,7 @@ export default function TenantStatement() {
           <Button variant="subtle" onClick={() => window.print()} disabled={busy}>
             {t('tenantStatement.printPdf')}
           </Button>
-          <Link to="/tenants">
+          <Link to="/company/tenants">
             <Button variant="ghost">{t('tenantStatement.back')}</Button>
           </Link>
         </div>

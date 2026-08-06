@@ -2,7 +2,10 @@
   "app": {
     "init": "Starting up…",
     "supabaseMissing": "Supabase configuration incomplete",
-    "supabaseHint": "Set environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY."
+    "supabaseHint": "Set environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.",
+    "accessDeniedTitle": "Access denied",
+    "accessDeniedBody": "Your account is not allowed to open this product area.",
+    "accessDeniedHome": "Go to your home"
   },
   "lang": {
     "ar": "العربية",

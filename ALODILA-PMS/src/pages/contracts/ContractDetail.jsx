@@ -160,7 +160,7 @@ export default function ContractDetail() {
         <div>
           <div className="text-lg font-extrabold text-slate-900">{t('contractDetail.pageTitle')}</div>
           <div className="mt-1 text-sm text-slate-500">
-            <Link to="/contracts" className="font-semibold text-slate-900 hover:underline">
+            <Link to="/company/contracts" className="font-semibold text-slate-900 hover:underline">
               {t('contractDetail.contractsLink')}
             </Link>{' '}
             / {t('contractDetail.breadcrumb')}
@@ -178,7 +178,7 @@ export default function ContractDetail() {
           <Button variant="ghost" onClick={() => onGenerateSchedule({ replaceExisting: true })} disabled={busy || scheduling || terminating}>
             {t('contractDetail.regenerateSchedule')}
           </Button>
-          <Link to="/contracts">
+          <Link to="/company/contracts">
             <Button variant="ghost">{t('contractDetail.back')}</Button>
           </Link>
         </div>

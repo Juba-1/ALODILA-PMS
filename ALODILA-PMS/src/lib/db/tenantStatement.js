@@ -1,20 +1,23 @@
 import { supabase } from '../supabase/client'
 import { moneyToCents } from '../money/cents'
+import { resolveReadScope, withCompanyEq, assertRowInScope } from '../tenancy/index.js'
 
 const CHUNK = 2000
 const MAX_CHUNKS = 500
 
-async function getContractIdsForTenant(tenantId) {
+async function getContractIdsForTenant(tenantId, scope) {
   const ids = []
   let from = 0
   for (let i = 0; i < MAX_CHUNKS; i += 1) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('contracts')
       .select('id')
       .eq('is_deleted', false)
       .eq('tenant_id', tenantId)
       .order('id', { ascending: true })
       .range(from, from + CHUNK - 1)
+    q = withCompanyEq(q, scope)
+    const { data, error } = await q
     if (error) throw error
     const rows = data || []
     for (const r of rows) if (r?.id) ids.push(r.id)
@@ -24,7 +27,7 @@ async function getContractIdsForTenant(tenantId) {
   return ids
 }
 
-async function getInvoicesForContracts(contractIds) {
+async function getInvoicesForContracts(contractIds, scope) {
   if (!contractIds.length) return []
   // PostgREST has limits on IN lists; chunk them.
   const chunks = []
@@ -32,31 +35,35 @@ async function getInvoicesForContracts(contractIds) {
 
   const out = []
   for (const ids of chunks) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('invoices')
       .select('id,contract_id,due_date,subtotal_amount,vat_applicable,total_amount,created_at')
       .eq('is_deleted', false)
       .in('contract_id', ids)
       .order('due_date', { ascending: true })
+    q = withCompanyEq(q, scope)
+    const { data, error } = await q
     if (error) throw error
     out.push(...(data || []))
   }
   return out
 }
 
-async function getPaymentsForInvoiceIds(invoiceIds) {
+async function getPaymentsForInvoiceIds(invoiceIds, scope) {
   if (!invoiceIds.length) return []
   const chunks = []
   for (let i = 0; i < invoiceIds.length; i += 200) chunks.push(invoiceIds.slice(i, i + 200))
 
   const out = []
   for (const ids of chunks) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('payments')
       .select('id,invoice_id,payment_date,amount,created_at')
       .eq('is_deleted', false)
       .in('invoice_id', ids)
       .order('payment_date', { ascending: true })
+    q = withCompanyEq(q, scope)
+    const { data, error } = await q
     if (error) throw error
     out.push(...(data || []))
   }
@@ -81,19 +88,22 @@ export async function getTenantStatement(tenantId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
   if (!tenantId) throw new Error('tenantId is required')
 
-  const { data: tenantRow, error: tErr } = await supabase
+  const scope = await resolveReadScope()
+  let tenantQ = supabase
     .from('tenants')
-    .select('id,full_name,national_id_or_cr,phone')
+    .select('id,full_name,national_id_or_cr,phone,company_id')
     .eq('is_deleted', false)
     .eq('id', tenantId)
-    .maybeSingle()
+  tenantQ = withCompanyEq(tenantQ, scope)
+  const { data: tenantRow, error: tErr } = await tenantQ.maybeSingle()
   if (tErr) throw tErr
   if (!tenantRow?.id) throw new Error('Tenant not found')
+  assertRowInScope(tenantRow, scope)
 
-  const contractIds = await getContractIdsForTenant(tenantId)
-  const invoices = await getInvoicesForContracts(contractIds)
+  const contractIds = await getContractIdsForTenant(tenantId, scope)
+  const invoices = await getInvoicesForContracts(contractIds, scope)
   const invoiceIds = invoices.map((x) => x.id).filter(Boolean)
-  const payments = await getPaymentsForInvoiceIds(invoiceIds)
+  const payments = await getPaymentsForInvoiceIds(invoiceIds, scope)
 
   const entries = []
 
@@ -150,4 +160,3 @@ export async function getTenantStatement(tenantId) {
     entries: withBalance,
   }
 }
-

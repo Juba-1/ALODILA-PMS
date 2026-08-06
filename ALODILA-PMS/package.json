@@ -11,7 +11,18 @@
     "dev:vercel": "vercel dev",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "rls:validate": "node rls-validation/scripts/run.mjs",
+    "rls:detect": "node rls-validation/scripts/detect.mjs",
+    "local:start": "supabase start",
+    "local:stop": "supabase stop",
+    "local:status": "supabase status",
+    "local:reset": "supabase db reset --yes",
+    "local:validate": "node rls-validation/scripts/local-validate.mjs",
+    "release:preflight": "node rls-validation/scripts/release-preflight.mjs",
+    "release:smoke": "node rls-validation/scripts/clone-smoke.mjs",
+    "release:closeout": "node rls-validation/scripts/release-preflight.mjs && node rls-validation/scripts/clone-smoke.mjs",
+    "auth:promote:dry": "node rls-validation/release/auth-promote.local.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.102.1",

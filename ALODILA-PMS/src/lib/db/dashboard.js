@@ -2,6 +2,7 @@ import { supabase } from '../supabase/client'
 import { paymentStatusOfInvoice } from '../finance/invoiceDerived'
 import { sumInvoicesTotalAndMonth, sumMaintenanceCostAndMonth, sumPaymentsAmountAndMonth } from './ledgerTotals'
 import { centsToMoneyString, moneyToCents } from '../money/cents'
+import { resolveReadScope, withCompanyEq } from '../tenancy/index.js'
 
 function isoTodayLocal() {
   const d = new Date()
@@ -29,23 +30,37 @@ function daysBetweenISO(a, b) {
 async function fetchPortfolioCounts() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
+  const scope = await resolveReadScope()
+
   // NOTE on `units`: we need status breakdown for the occupancy KPI. Using
   // `head: true` on a status query doesn't give us the by-status split, so we
   // load a slim selection (id, status) and tally client-side. The units table
   // is small enough that this is cheaper than N separate COUNTs.
+  let propsQ = supabase.from('properties').select('id', { count: 'exact', head: true }).eq('is_deleted', false)
+  propsQ = withCompanyEq(propsQ, scope)
+
+  let unitsQ = supabase.from('units').select('id, status').eq('is_deleted', false)
+  unitsQ = withCompanyEq(unitsQ, scope)
+
+  let contractsQ = supabase
+    .from('contracts')
+    .select('id', { count: 'exact', head: true })
+    .eq('is_deleted', false)
+    .eq('status', 'ساري')
+  contractsQ = withCompanyEq(contractsQ, scope)
+
+  let pendingMaintQ = supabase
+    .from('maintenance_requests')
+    .select('id, cost_amount, status')
+    .eq('is_deleted', false)
+    .in('status', ['مفتوح', 'قيد المعالجة'])
+  pendingMaintQ = withCompanyEq(pendingMaintQ, scope)
+
   const [propsRes, unitsRes, contractsRes, pendingMaintRes] = await Promise.all([
-    supabase.from('properties').select('id', { count: 'exact', head: true }).eq('is_deleted', false),
-    supabase.from('units').select('id, status').eq('is_deleted', false),
-    supabase
-      .from('contracts')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_deleted', false)
-      .eq('status', 'ساري'),
-    supabase
-      .from('maintenance_requests')
-      .select('id, cost_amount, status')
-      .eq('is_deleted', false)
-      .in('status', ['مفتوح', 'قيد المعالجة']),
+    propsQ,
+    unitsQ,
+    contractsQ,
+    pendingMaintQ,
   ])
 
   if (propsRes.error) throw propsRes.error
@@ -141,11 +156,12 @@ export async function loadAdminLedgerForAi(monthKey) {
 export async function getRecentActivity() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const [contractsRes, paymentsRes] = await Promise.all([
-    supabase
-      .from('contracts')
-      .select(
-        `
+  const scope = await resolveReadScope()
+
+  let contractsQ = supabase
+    .from('contracts')
+    .select(
+      `
         id,
         created_at,
         start_date,
@@ -155,14 +171,16 @@ export async function getRecentActivity() {
         tenant:tenants(id, full_name, is_deleted),
         unit:units(id, unit_name, is_deleted)
       `,
-      )
-      .eq('is_deleted', false)
-      .order('created_at', { ascending: false })
-      .limit(5),
-    supabase
-      .from('payments')
-      .select(
-        `
+    )
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: false })
+    .limit(5)
+  contractsQ = withCompanyEq(contractsQ, scope)
+
+  let paymentsQ = supabase
+    .from('payments')
+    .select(
+      `
         id,
         created_at,
         payment_date,
@@ -178,11 +196,13 @@ export async function getRecentActivity() {
           )
         )
       `,
-      )
-      .eq('is_deleted', false)
-      .order('created_at', { ascending: false })
-      .limit(5),
-  ])
+    )
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: false })
+    .limit(5)
+  paymentsQ = withCompanyEq(paymentsQ, scope)
+
+  const [contractsRes, paymentsRes] = await Promise.all([contractsQ, paymentsQ])
 
   if (contractsRes.error) throw contractsRes.error
   if (paymentsRes.error) throw paymentsRes.error
@@ -225,14 +245,14 @@ export async function getRecentActivity() {
 export async function getProactiveAlerts() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
+  const scope = await resolveReadScope()
   const today = isoTodayLocal()
   const horizon = isoAddDaysLocal(today, 30)
 
-  const [contractsRes, invoicesRes] = await Promise.all([
-    supabase
-      .from('contracts')
-      .select(
-        `
+  let contractsQ = supabase
+    .from('contracts')
+    .select(
+      `
         id,
         end_date,
         ejar_contract_number,
@@ -240,21 +260,23 @@ export async function getProactiveAlerts() {
         tenant:tenants(full_name),
         unit:units(unit_name, property:properties(name))
       `,
-      )
-      .eq('is_deleted', false)
-      .eq('status', 'ساري')
-      .gte('end_date', today)
-      .lte('end_date', horizon)
-      .order('end_date', { ascending: true })
-      .limit(50),
-    /**
-     * Overdue invoices only (narrow filter) — no nested `payments` embed (avoids huge joins / timeouts).
-     * Payment lines loaded in a second batched query by invoice_id.
-     */
-    supabase
-      .from('invoices')
-      .select(
-        `
+    )
+    .eq('is_deleted', false)
+    .eq('status', 'ساري')
+    .gte('end_date', today)
+    .lte('end_date', horizon)
+    .order('end_date', { ascending: true })
+    .limit(50)
+  contractsQ = withCompanyEq(contractsQ, scope)
+
+  /**
+   * Overdue invoices only (narrow filter) — no nested `payments` embed (avoids huge joins / timeouts).
+   * Payment lines loaded in a second batched query by invoice_id.
+   */
+  let invoicesQ = supabase
+    .from('invoices')
+    .select(
+      `
         id,
         due_date,
         total_amount,
@@ -264,12 +286,14 @@ export async function getProactiveAlerts() {
           unit:units(unit_name, property:properties(name))
         )
       `,
-      )
-      .eq('is_deleted', false)
-      .lt('due_date', today)
-      .order('due_date', { ascending: true })
-      .limit(120),
-  ])
+    )
+    .eq('is_deleted', false)
+    .lt('due_date', today)
+    .order('due_date', { ascending: true })
+    .limit(120)
+  invoicesQ = withCompanyEq(invoicesQ, scope)
+
+  const [contractsRes, invoicesRes] = await Promise.all([contractsQ, invoicesQ])
 
   if (contractsRes.error) throw contractsRes.error
   if (invoicesRes.error) throw invoicesRes.error
@@ -290,11 +314,13 @@ export async function getProactiveAlerts() {
   /** @type {Map<string, Array<{ amount: unknown, is_deleted?: boolean }>>} */
   const paymentsByInvoice = new Map()
   if (invIds.length) {
-    const { data: payRows, error: payErr } = await supabase
+    let payQ = supabase
       .from('payments')
       .select('invoice_id, amount, is_deleted')
       .eq('is_deleted', false)
       .in('invoice_id', invIds)
+    payQ = withCompanyEq(payQ, scope)
+    const { data: payRows, error: payErr } = await payQ
     if (payErr) throw payErr
     for (const p of payRows || []) {
       const iid = p.invoice_id
@@ -325,4 +351,3 @@ export async function getProactiveAlerts() {
 
   return { expiringContracts, overdueInvoices }
 }
-

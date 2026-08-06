@@ -3,8 +3,9 @@ import { supabase } from '../supabase/client'
 
 /**
  * Defense-in-depth: every owner-portal DB read must use an `ownerCrmId` that matches
- * the signed-in user's JWT (`user_metadata` / `app_metadata`). RLS (`current_owner_id()`)
- * is authoritative; this rejects tampered React context before hitting the network.
+ * the signed-in user's JWT `app_metadata.owner_crm_id` (never user_metadata).
+ * RLS (`current_owner_id()`) is authoritative; this rejects tampered React context
+ * before hitting the network.
  */
 export async function assertOwnerCrmIdMatchesSession(ownerCrmId) {
   if (!supabase) throw new Error('Supabase is not configured.')

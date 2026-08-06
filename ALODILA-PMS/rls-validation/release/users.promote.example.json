@@ -1,0 +1,23 @@
+[
+  {
+    "email": "alodila-company@example.invalid",
+    "app_metadata": {
+      "role": "company",
+      "company_id": "a1000000-a10d-4000-8000-000000000001"
+    }
+  },
+  {
+    "email": "platform-sa@example.invalid",
+    "app_metadata": {
+      "role": "platform_super_admin"
+    }
+  },
+  {
+    "email": "owner-a@example.invalid",
+    "app_metadata": {
+      "role": "owner",
+      "owner_crm_id": "REPLACE_WITH_OWNERS_ID",
+      "company_id": "a1000000-a10d-4000-8000-000000000001"
+    }
+  }
+]

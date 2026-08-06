@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "description": "Machine-readable release gate artifacts for Soft RLS Gate A / clone smoke.",
+  "productionHostRefusal": "ryfqqyrqmsyngwcsfjug",
+  "migrations": {
+    "required_apply_order": [
+      "supabase/migrations/006_sprint4_soft_rls_v2.sql",
+      "supabase/migrations/20260805120000_fix_with_check_helpers.sql"
+    ],
+    "required_pair": [
+      "supabase/migrations/006_sprint4_soft_rls_v2.sql",
+      "supabase/migrations/20260805120000_fix_with_check_helpers.sql"
+    ]
+  },
+  "quarantine": {
+    "note": "Must remain out of supabase/migrations until deliberately executed.",
+    "files": [
+      {
+        "path": "supabase/quarantine/006_sprint4_soft_rls_and_indexes.sql",
+        "label": "V1 superseded abort stub"
+      },
+      {
+        "path": "supabase/quarantine/007_company_id_not_null_DRAFT.sql",
+        "label": "Gate B draft abort stub"
+      },
+      {
+        "path": "supabase/quarantine/006b_sprint4_wave_a_indexes_concurrent.sql",
+        "label": "CONCURRENTLY indexes (manual ops only)"
+      }
+    ]
+  },
+  "docs": [
+    "docs/PRODUCTION_SOFT_RLS_RUNBOOK.md",
+    "docs/AUTH_RELEASE_MIGRATION_KIT.md",
+    "docs/ROLLBACK_PACK_SOFT_RLS.md",
+    "docs/GATE_A_EXECUTION_CHECKLIST.md",
+    "docs/RELEASE_CLOSEOUT_SPRINT4.md",
+    "docs/PRODUCTION_RELEASE_EXECUTION_PACKAGE.md"
+  ]
+}

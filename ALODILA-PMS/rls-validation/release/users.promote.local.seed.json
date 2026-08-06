@@ -1,0 +1,17 @@
+[
+  {
+    "email": "staff-a@local.alodila.test",
+    "app_metadata": {
+      "role": "company_admin",
+      "company_id": "a1000000-a10d-4000-8000-000000000001"
+    }
+  },
+  {
+    "email": "owner-a@local.alodila.test",
+    "app_metadata": {
+      "role": "owner",
+      "company_id": "a1000000-a10d-4000-8000-000000000001",
+      "owner_crm_id": "a0a00000-0000-4000-8000-0000000000a1"
+    }
+  }
+]

@@ -1,5 +1,6 @@
 import { assertOwnerCrmIdMatchesSession } from '../auth/ownerScope'
 import { supabase } from '../supabase/client'
+import { resolveReadScope, withCompanyEq, assertRowInScope } from '../tenancy/index.js'
 import { getInvoicesForContractIds } from './invoices'
 import { getActiveUnitsByPropertyId } from './units'
 
@@ -46,27 +47,31 @@ function mapContractRow(c) {
  * All reads are scoped by owner CRM id; RLS must allow the same rows (see schema_owner_portal_rls.sql).
  * Isolation: `assertOwnerCrmIdMatchesSession` on entry points + RLS `current_owner_id()` = JWT owner_crm_id
  * (national ID is resolved to `owners.id` at signup only — not sent on each query).
+ * Sprint 4 Stream C: company_id filter is additive via withCompanyEq.
  */
-async function resolveOwnerScope(ownerCrmId) {
-  const properties = await getOwnerProperties(ownerCrmId)
+async function resolveOwnerScope(ownerCrmId, scope) {
+  const readScope = scope ?? (await resolveReadScope())
+  const properties = await getOwnerProperties(ownerCrmId, readScope)
   const propertyIds = properties.map((p) => p.id).filter(Boolean)
   if (!propertyIds.length) {
-    return { properties, propertyIds, unitIds: [], contractRows: [], contractIds: [] }
+    return { properties, propertyIds, unitIds: [], contractRows: [], contractIds: [], scope: readScope }
   }
 
-  const { data: unitsRes, error: unitsErr } = await supabase
+  let unitsQ = supabase
     .from('units')
     .select('id')
     .eq('is_deleted', false)
     .in('property_id', propertyIds)
+  unitsQ = withCompanyEq(unitsQ, readScope)
+  const { data: unitsRes, error: unitsErr } = await unitsQ
 
   if (unitsErr) throw unitsErr
   const unitIds = (unitsRes || []).map((u) => u.id).filter(Boolean)
   if (!unitIds.length) {
-    return { properties, propertyIds, unitIds: [], contractRows: [], contractIds: [] }
+    return { properties, propertyIds, unitIds: [], contractRows: [], contractIds: [], scope: readScope }
   }
 
-  const { data: contractRows, error: cErr } = await supabase
+  let contractsQ = supabase
     .from('contracts')
     .select(
       `
@@ -82,6 +87,8 @@ async function resolveOwnerScope(ownerCrmId) {
     )
     .eq('is_deleted', false)
     .in('unit_id', unitIds)
+  contractsQ = withCompanyEq(contractsQ, readScope)
+  const { data: contractRows, error: cErr } = await contractsQ
 
   if (cErr) throw cErr
 
@@ -92,7 +99,7 @@ async function resolveOwnerScope(ownerCrmId) {
   })
 
   const contractIds = rows.map((r) => r.id).filter(Boolean)
-  return { properties, propertyIds, unitIds, contractRows: rows, contractIds }
+  return { properties, propertyIds, unitIds, contractRows: rows, contractIds, scope: readScope }
 }
 
 function contractIdToPropertyMeta(contractRows) {
@@ -110,12 +117,13 @@ function contractIdToPropertyMeta(contractRows) {
   return map
 }
 
-export async function getOwnerProperties(ownerCrmId) {
+export async function getOwnerProperties(ownerCrmId, scope) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
   if (!ownerCrmId) throw new Error('ownerCrmId is required')
   await assertOwnerCrmIdMatchesSession(ownerCrmId)
 
-  const { data, error } = await supabase
+  const readScope = scope ?? (await resolveReadScope())
+  let q = supabase
     .from('properties')
     .select(
       'id,name,category,type,deed_number,maps_link,total_units_capacity,management_start_date,created_at,owner_crm_id',
@@ -123,6 +131,8 @@ export async function getOwnerProperties(ownerCrmId) {
     .eq('is_deleted', false)
     .eq('owner_crm_id', ownerCrmId)
     .order('name', { ascending: true })
+  q = withCompanyEq(q, readScope)
+  const { data, error } = await q
 
   if (error) throw error
   return data || []
@@ -133,17 +143,20 @@ export async function getOwnerPropertyById(ownerCrmId, propertyId) {
   if (!ownerCrmId || !propertyId) throw new Error('ownerCrmId and propertyId are required')
   await assertOwnerCrmIdMatchesSession(ownerCrmId)
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('properties')
     .select(
-      'id,name,category,type,deed_number,maps_link,total_units_capacity,management_start_date,created_at,owner_crm_id',
+      'id,name,category,type,deed_number,maps_link,total_units_capacity,management_start_date,created_at,owner_crm_id,company_id',
     )
     .eq('id', propertyId)
     .eq('is_deleted', false)
     .eq('owner_crm_id', ownerCrmId)
-    .maybeSingle()
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q.maybeSingle()
 
   if (error) throw error
+  if (data) assertRowInScope(data, scope)
   return data
 }
 
@@ -152,16 +165,19 @@ export async function getOwnerActiveContracts(ownerCrmId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
   if (!ownerCrmId) throw new Error('ownerCrmId is required')
 
-  const { unitIds } = await resolveOwnerScope(ownerCrmId)
+  const scope = await resolveReadScope()
+  const { unitIds } = await resolveOwnerScope(ownerCrmId, scope)
   if (!unitIds.length) return []
 
-  const { data, error } = await supabase
+  let q = supabase
     .from('contracts')
     .select(CONTRACT_SELECT)
     .eq('is_deleted', false)
     .eq('status', 'ساري')
     .in('unit_id', unitIds)
     .order('end_date', { ascending: true })
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q
 
   if (error) throw error
   return (data || []).map(mapContractRow)
@@ -175,18 +191,21 @@ export async function getOwnerUnitsSummary(ownerCrmId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
   if (!ownerCrmId) throw new Error('ownerCrmId is required')
 
-  const { propertyIds, unitIds } = await resolveOwnerScope(ownerCrmId)
+  const scope = await resolveReadScope()
+  const { propertyIds, unitIds } = await resolveOwnerScope(ownerCrmId, scope)
   if (!propertyIds.length) return { totalUnits: 0, rentedUnits: 0 }
 
   const totalUnits = unitIds.length
   let rentedUnits = 0
   if (unitIds.length) {
-    const { data: activeUnits, error: cuErr } = await supabase
+    let q = supabase
       .from('contracts')
       .select('unit_id')
       .eq('is_deleted', false)
       .eq('status', 'ساري')
       .in('unit_id', unitIds)
+    q = withCompanyEq(q, scope)
+    const { data: activeUnits, error: cuErr } = await q
 
     if (cuErr) throw cuErr
     rentedUnits = new Set((activeUnits || []).map((c) => c.unit_id).filter(Boolean)).size
@@ -195,14 +214,17 @@ export async function getOwnerUnitsSummary(ownerCrmId) {
   return { totalUnits, rentedUnits }
 }
 
-async function fetchOwnerPaymentsGraph(contractIds, contractMetaById) {
+async function fetchOwnerPaymentsGraph(contractIds, contractMetaById, scope) {
   if (!contractIds.length) return []
 
-  const { data: invs, error: invErr } = await supabase
+  const readScope = scope ?? (await resolveReadScope())
+  let invQ = supabase
     .from('invoices')
     .select('id, contract_id')
     .eq('is_deleted', false)
     .in('contract_id', contractIds)
+  invQ = withCompanyEq(invQ, readScope)
+  const { data: invs, error: invErr } = await invQ
 
   if (invErr) throw invErr
   const invoiceRows = invs || []
@@ -211,11 +233,13 @@ async function fetchOwnerPaymentsGraph(contractIds, contractMetaById) {
 
   const invToContract = new Map(invoiceRows.map((i) => [i.id, i.contract_id]))
 
-  const { data, error } = await supabase
+  let payQ = supabase
     .from('payments')
     .select('id, amount, payment_date, invoice_id')
     .eq('is_deleted', false)
     .in('invoice_id', invoiceIds)
+  payQ = withCompanyEq(payQ, readScope)
+  const { data, error } = await payQ
 
   if (error) throw error
 
@@ -236,10 +260,11 @@ async function fetchOwnerPaymentsGraph(contractIds, contractMetaById) {
   return out
 }
 
-async function fetchOwnerMaintenanceGraph(unitIds) {
+async function fetchOwnerMaintenanceGraph(unitIds, scope) {
   if (!unitIds.length) return []
 
-  const { data, error } = await supabase
+  const readScope = scope ?? (await resolveReadScope())
+  let q = supabase
     .from('maintenance_requests')
     .select(
       `
@@ -260,6 +285,8 @@ async function fetchOwnerMaintenanceGraph(unitIds) {
     .eq('is_deleted', false)
     .in('unit_id', unitIds)
     .order('created_at', { ascending: false })
+  q = withCompanyEq(q, readScope)
+  const { data, error } = await q
 
   if (error) throw error
 
@@ -291,11 +318,12 @@ async function fetchOwnerMaintenanceGraph(unitIds) {
 export async function getOwnerMaintenanceLedger(ownerCrmId) {
   if (!ownerCrmId) throw new Error('ownerCrmId is required')
 
-  const { unitIds } = await resolveOwnerScope(ownerCrmId)
-  const base = await fetchOwnerMaintenanceGraph(unitIds)
+  const scope = await resolveReadScope()
+  const { unitIds } = await resolveOwnerScope(ownerCrmId, scope)
+  const base = await fetchOwnerMaintenanceGraph(unitIds, scope)
   if (!unitIds.length) return []
 
-  const { data: activeContracts, error } = await supabase
+  let q = supabase
     .from('contracts')
     .select(
       `
@@ -306,6 +334,8 @@ export async function getOwnerMaintenanceLedger(ownerCrmId) {
     .eq('is_deleted', false)
     .eq('status', 'ساري')
     .in('unit_id', unitIds)
+  q = withCompanyEq(q, scope)
+  const { data: activeContracts, error } = await q
 
   if (error) throw error
 
@@ -342,7 +372,8 @@ function paymentsTotalThisCalendarMonth(payments, now = new Date()) {
 export async function getOwnerReportingBundle(ownerCrmId) {
   if (!ownerCrmId) throw new Error('ownerCrmId is required')
 
-  const { properties, unitIds, contractIds, contractRows } = await resolveOwnerScope(ownerCrmId)
+  const scope = await resolveReadScope()
+  const { properties, unitIds, contractIds, contractRows } = await resolveOwnerScope(ownerCrmId, scope)
   const contractMetaById = contractIdToPropertyMeta(contractRows)
 
   if (!contractIds.length) {
@@ -363,8 +394,8 @@ export async function getOwnerReportingBundle(ownerCrmId) {
   }
 
   const [payments, maintenance, invoices] = await Promise.all([
-    fetchOwnerPaymentsGraph(contractIds, contractMetaById),
-    fetchOwnerMaintenanceGraph(unitIds),
+    fetchOwnerPaymentsGraph(contractIds, contractMetaById, scope),
+    fetchOwnerMaintenanceGraph(unitIds, scope),
     getInvoicesForContractIds(contractIds),
   ])
 

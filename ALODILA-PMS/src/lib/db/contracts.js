@@ -1,5 +1,14 @@
 import { supabase } from '../supabase/client'
 import { deletePendingInvoicesForContract } from './contractFinance'
+import {
+  resolveWriteCompany,
+  stampInsert,
+  assertParentInWriteCompany,
+  resolveReadScope,
+  withCompanyEq,
+  withWriteCompanyEq,
+  assertRowInScope,
+} from '../tenancy/index.js'
 
 const UTILITY_TYPES = ['مستقل', 'مشترك', 'شامل', 'مقطوع']
 
@@ -55,6 +64,7 @@ const CONTRACT_SELECT = `
       utility_payment_type,
       utility_flat_amount_sar,
       handover_notes,
+      company_id,
       tenant:tenants(id, full_name, is_deleted),
       unit:units(
         id,
@@ -79,23 +89,29 @@ async function refreshUnitOccupancyFromContracts(unitId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
   if (!unitId) return
 
-  const { data: unitRow, error: unitErr } = await supabase
+  const scope = await resolveReadScope()
+
+  let unitQ = supabase
     .from('units')
-    .select('id,status')
+    .select('id,status,company_id')
     .eq('id', unitId)
     .eq('is_deleted', false)
-    .maybeSingle()
+  unitQ = withCompanyEq(unitQ, scope)
+  const { data: unitRow, error: unitErr } = await unitQ.maybeSingle()
 
   if (unitErr) throw unitErr
   if (!unitRow?.id) return
+  assertRowInScope(unitRow, scope)
 
   const currentStatus = String(unitRow.status || '')
 
-  const { data: activeRows, error: activeErr } = await supabase
+  let activeQ = supabase
     .from('contracts')
     .select('id, unit_id, secondary_unit_ids')
     .eq('is_deleted', false)
     .eq('status', 'ساري')
+  activeQ = withCompanyEq(activeQ, scope)
+  const { data: activeRows, error: activeErr } = await activeQ
 
   if (activeErr) throw activeErr
 
@@ -109,18 +125,24 @@ async function refreshUnitOccupancyFromContracts(unitId) {
 
   if (nextStatus === currentStatus) return
 
-  const { error: updErr } = await supabase.from('units').update({ status: nextStatus }).eq('id', unitId).eq('is_deleted', false)
+  const write = await resolveWriteCompany()
+  let updQ = supabase.from('units').update({ status: nextStatus }).eq('id', unitId).eq('is_deleted', false)
+  updQ = withWriteCompanyEq(updQ, write)
+  const { error: updErr } = await updQ
   if (updErr) throw updErr
 }
 
 export async function getContracts() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('contracts')
     .select(CONTRACT_SELECT)
     .eq('is_deleted', false)
     .order('start_date', { ascending: false })
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q
 
   if (error) throw error
 
@@ -132,7 +154,8 @@ export async function getContracts() {
 export async function getActiveContractsForSelect() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('contracts')
     .select(
       `
@@ -144,6 +167,7 @@ export async function getActiveContractsForSelect() {
       billing_cycle,
       utility_payment_type,
       utility_flat_amount_sar,
+      company_id,
       tenant:tenants(id, full_name, is_deleted),
       unit:units(
         id,
@@ -157,6 +181,8 @@ export async function getActiveContractsForSelect() {
     .eq('is_deleted', false)
     .eq('status', 'ساري')
     .order('start_date', { ascending: false })
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q
 
   if (error) throw error
   return (data || [])
@@ -200,9 +226,16 @@ export async function createContract(input) {
     is_deleted: false,
   }
 
+  const write = await resolveWriteCompany()
+  await assertParentInWriteCompany('tenants', payload.tenant_id, write.companyId, 'tenant')
+  for (const uid of collectContractUnitIds({ unit_id: payload.unit_id, secondary_unit_ids })) {
+    await assertParentInWriteCompany('units', uid, write.companyId, 'unit')
+  }
+  const stamped = stampInsert(payload, write)
+
   const { data, error } = await supabase
     .from('contracts')
-    .insert(payload)
+    .insert(stamped)
     .select(CONTRACT_SELECT)
     .single()
 
@@ -215,7 +248,9 @@ export async function createContract(input) {
   } catch (e) {
     // Best-effort consistency repair: if occupancy sync fails, hide the orphan contract row from the UI layer.
     try {
-      await supabase.from('contracts').update({ is_deleted: true }).eq('id', data.id)
+      let rollbackQ = supabase.from('contracts').update({ is_deleted: true }).eq('id', data.id)
+      rollbackQ = withWriteCompanyEq(rollbackQ, write)
+      await rollbackQ
     } catch {
       // ignore
     }
@@ -228,16 +263,19 @@ export async function createContract(input) {
 export async function updateContract(contractId, updates) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data: before, error: beforeErr } = await supabase
+  const scope = await resolveReadScope()
+  let beforeQ = supabase
     .from('contracts')
-    .select('id, unit_id, secondary_unit_ids')
+    .select('id, tenant_id, unit_id, secondary_unit_ids, company_id')
     .eq('id', contractId)
     .eq('is_deleted', false)
-    .maybeSingle()
+  beforeQ = withCompanyEq(beforeQ, scope)
+  const { data: before, error: beforeErr } = await beforeQ.maybeSingle()
 
   if (beforeErr) throw beforeErr
   if (!before?.id) throw new Error('Contract not found')
 
+  const write = await resolveWriteCompany()
   const util = normalizeContractUtilityFields(updates)
   const secondary_unit_ids = normalizeSecondaryUnitIds(updates, updates.unit_id)
   const payload = {
@@ -256,14 +294,30 @@ export async function updateContract(contractId, updates) {
     utility_flat_amount_sar: util.utility_flat_amount_sar,
     handover_notes: util.handover_notes,
   }
+  delete payload.company_id
 
-  const { data, error } = await supabase
+  const prevSecondary = normalizeSecondaryUnitIds(before, before.unit_id)
+  const tenantChanged = String(payload.tenant_id || '') !== String(before.tenant_id || '')
+  const unitChanged = String(payload.unit_id || '') !== String(before.unit_id || '')
+  const secondaryChanged =
+    prevSecondary.length !== secondary_unit_ids.length ||
+    prevSecondary.some((id) => !secondary_unit_ids.includes(id))
+  if (tenantChanged) {
+    await assertParentInWriteCompany('tenants', payload.tenant_id, write.companyId, 'tenant')
+  }
+  if (unitChanged || secondaryChanged) {
+    for (const uid of collectContractUnitIds({ unit_id: payload.unit_id, secondary_unit_ids })) {
+      await assertParentInWriteCompany('units', uid, write.companyId, 'unit')
+    }
+  }
+
+  let updQ = supabase
     .from('contracts')
     .update(payload)
     .eq('id', contractId)
     .eq('is_deleted', false)
-    .select(CONTRACT_SELECT)
-    .single()
+  updQ = withWriteCompanyEq(updQ, write)
+  const { data, error } = await updQ.select(CONTRACT_SELECT).single()
 
   if (error) throw error
 
@@ -285,24 +339,28 @@ export async function updateContract(contractId, updates) {
 export async function terminateContractAndSettle(contractId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data: before, error: beforeErr } = await supabase
+  const scope = await resolveReadScope()
+  let beforeQ = supabase
     .from('contracts')
-    .select('id, unit_id, secondary_unit_ids, status')
+    .select('id, unit_id, secondary_unit_ids, status, company_id')
     .eq('id', contractId)
     .eq('is_deleted', false)
-    .maybeSingle()
+  beforeQ = withCompanyEq(beforeQ, scope)
+  const { data: before, error: beforeErr } = await beforeQ.maybeSingle()
 
   if (beforeErr) throw beforeErr
   if (!before?.id) throw new Error('Contract not found')
+  assertRowInScope(before, scope)
   if (before.status === 'منتهي') throw new Error('العقد منتهٍ مسبقاً.')
 
-  const { data, error } = await supabase
+  const write = await resolveWriteCompany()
+  let termQ = supabase
     .from('contracts')
     .update({ status: 'منتهي' })
     .eq('id', contractId)
     .eq('is_deleted', false)
-    .select(CONTRACT_SELECT)
-    .single()
+  termQ = withWriteCompanyEq(termQ, write)
+  const { data, error } = await termQ.select(CONTRACT_SELECT).single()
 
   if (error) throw error
 
@@ -318,19 +376,25 @@ export async function terminateContractAndSettle(contractId) {
 export async function softDeleteContract(contractId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data: row, error: rowErr } = await supabase
+  const scope = await resolveReadScope()
+  let rowQ = supabase
     .from('contracts')
-    .select('unit_id, secondary_unit_ids')
+    .select('unit_id, secondary_unit_ids, company_id')
     .eq('id', contractId)
     .eq('is_deleted', false)
-    .maybeSingle()
+  rowQ = withCompanyEq(rowQ, scope)
+  const { data: row, error: rowErr } = await rowQ.maybeSingle()
   if (rowErr) throw rowErr
+  if (!row) throw new Error('Contract not found or out of company scope.')
 
-  const { error } = await supabase.from('contracts').update({ is_deleted: true }).eq('id', contractId)
+  const write = await resolveWriteCompany()
+  let delQ = supabase.from('contracts').update({ is_deleted: true }).eq('id', contractId)
+  delQ = withWriteCompanyEq(delQ, write)
+  const { data, error } = await delQ.select('id').maybeSingle()
   if (error) throw error
+  if (!data) throw new Error('Contract not found or out of company scope.')
 
-  for (const uid of collectContractUnitIds(row || {})) {
+  for (const uid of collectContractUnitIds(row)) {
     await refreshUnitOccupancyFromContracts(uid)
   }
 }
-

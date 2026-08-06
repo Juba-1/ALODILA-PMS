@@ -94,7 +94,7 @@ export default function InvoiceDetail() {
         <div>
           <div className="text-lg font-extrabold text-slate-900">{title}</div>
           <div className="mt-1 text-sm text-slate-500">
-            <Link to="/finance" className="font-semibold text-slate-900 hover:underline">
+            <Link to="/company/finance" className="font-semibold text-slate-900 hover:underline">
               {t('invoiceDetail.financeLink')}
             </Link>{' '}
             / {t('invoiceDetail.breadcrumb')}
@@ -104,7 +104,7 @@ export default function InvoiceDetail() {
           <Button variant="subtle" onClick={() => window.print()} disabled={busy || !inv}>
             {t('invoiceDetail.printPdf')}
           </Button>
-          <Link to="/finance">
+          <Link to="/company/finance">
             <Button variant="ghost">{t('invoiceDetail.back')}</Button>
           </Link>
         </div>

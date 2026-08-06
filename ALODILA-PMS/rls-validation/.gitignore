@@ -1,0 +1,7 @@
+.env.local
+release/.env.auth
+release/users.promote.json
+reports/*.json
+reports/*.md
+!reports/.gitkeep
+.work/

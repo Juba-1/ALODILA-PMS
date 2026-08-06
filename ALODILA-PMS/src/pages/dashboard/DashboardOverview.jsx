@@ -242,7 +242,7 @@ export default function DashboardOverview() {
               <div>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className="text-sm font-extrabold text-slate-900">{t('dashboardPage.expiringTitle')}</div>
-                  <Link to="/contracts" className="text-xs font-semibold text-slate-900 hover:underline">
+                  <Link to="/company/contracts" className="text-xs font-semibold text-slate-900 hover:underline">
                     {t('dashboardPage.contractsLink')}
                   </Link>
                 </div>
@@ -271,7 +271,7 @@ export default function DashboardOverview() {
               <div>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className="text-sm font-extrabold text-slate-900">{t('dashboardPage.overdueTitle')}</div>
-                  <Link to="/finance" className="text-xs font-semibold text-slate-900 hover:underline">
+                  <Link to="/company/finance" className="text-xs font-semibold text-slate-900 hover:underline">
                     {t('dashboardPage.financeLink')}
                   </Link>
                 </div>
@@ -374,10 +374,10 @@ export default function DashboardOverview() {
       </div>
 
       <div className="no-print sticky bottom-4 z-10 flex flex-wrap items-center justify-end gap-2 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm backdrop-blur">
-        <Button variant="subtle" onClick={() => navigate('/finance')}>
+        <Button variant="subtle" onClick={() => navigate('/company/finance')}>
           {t('dashboardPage.issueInvoice')}
         </Button>
-        <Button variant="gold" onClick={() => navigate('/properties/new')}>
+        <Button variant="gold" onClick={() => navigate('/company/properties/new')}>
           {t('dashboardPage.addProperty')}
         </Button>
       </div>

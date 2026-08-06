@@ -1,21 +1,19 @@
 /**
- * Role detection from Supabase session (app_metadata or user_metadata).
- * Owner portal: app_metadata from Dashboard, or user_metadata from first signUp (Phase 11 onboarding).
- *   { "role": "owner", "owner_crm_id": "<uuid of public.owners.id>" }
+ * Role detection from Supabase session.
+ * Authz (aligned with 006 V2 / JWT claim model): app_metadata ONLY.
+ * Client-writable user_metadata is never used for authorization.
+ * Platform Admin: `super_admin` (live) or `platform_super_admin` (target).
+ * Owner / company actors must be provisioned via Dashboard or service role.
  */
 
 export function appRole(user) {
   if (!user) return ''
-  const m = user.app_metadata || {}
-  const u = user.user_metadata || {}
-  return String(m.role || u.role || '')
+  return String((user.app_metadata || {}).role || '').trim()
 }
 
 export function ownerCrmIdFromUser(user) {
   if (!user) return ''
-  const m = user.app_metadata || {}
-  const u = user.user_metadata || {}
-  const id = m.owner_crm_id ?? u.owner_crm_id
+  const id = (user.app_metadata || {}).owner_crm_id
   if (id == null || id === '') return ''
   return String(id).trim()
 }
@@ -25,7 +23,24 @@ export function isOwnerPortalUser(user) {
 }
 
 export function isSuperAdminUser(user) {
-  return appRole(user) === 'super_admin'
+  const role = appRole(user)
+  return role === 'super_admin' || role === 'platform_super_admin'
+}
+
+/** Company operator — matches SQL is_company_login() (app_metadata only). */
+export function isCompanyOperatorUser(user) {
+  if (!user) return false
+  const role = appRole(user)
+  const companyId = String((user.app_metadata || {}).company_id || '').trim()
+  return (
+    (role === 'company' || role === 'company_admin' || role === 'company_staff') &&
+    companyId.length > 0
+  )
+}
+
+/** @deprecated Prefer isCompanyOperatorUser — kept as alias for call sites. */
+export function isCompanyLoginUser(user) {
+  return isCompanyOperatorUser(user)
 }
 
 /** For AI chat system prompts: super_admin | owner | staff */

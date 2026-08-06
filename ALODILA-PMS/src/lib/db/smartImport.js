@@ -3,6 +3,13 @@ import { createProperty, updateProperty } from './properties'
 import { createTenant, updateTenant } from './tenants'
 import { createOwner, getOwners } from './owners'
 import { updateUnit } from './units'
+import {
+  resolveWriteCompany,
+  stampInsert,
+  assertParentInWriteCompany,
+  resolveReadScope,
+  withCompanyEq,
+} from '../tenancy/index.js'
 
 function normStr(v) {
   return String(v ?? '')
@@ -42,37 +49,48 @@ function makeSyntheticTenantId({ tenantName, phone, sourceIndex }) {
   return `AUTO-${a}-${digits}-${String(sourceIndex ?? 0).padStart(4, '0')}`
 }
 
-async function fetchActivePropertiesLite() {
-  const { data, error } = await supabase
+async function fetchActivePropertiesLite(scope) {
+  const readScope = scope ?? (await resolveReadScope())
+  let q = supabase
     .from('properties')
     .select('id,name,category,type,total_units_capacity,owner_crm_id')
     .eq('is_deleted', false)
+  q = withCompanyEq(q, readScope)
+  const { data, error } = await q
   if (error) throw error
   return data || []
 }
 
-async function fetchActiveUnitsLite() {
-  const { data, error } = await supabase
+async function fetchActiveUnitsLite(scope) {
+  const readScope = scope ?? (await resolveReadScope())
+  let q = supabase
     .from('units')
     .select('id,property_id,unit_name,target_rent_value,rooms_count,status,electricity_meter_ref,water_meter_ref')
     .eq('is_deleted', false)
+  q = withCompanyEq(q, readScope)
+  const { data, error } = await q
   if (error) throw error
   return data || []
 }
 
-async function fetchActiveTenantsLite() {
-  const { data, error } = await supabase
+async function fetchActiveTenantsLite(scope) {
+  const readScope = scope ?? (await resolveReadScope())
+  let q = supabase
     .from('tenants')
     .select('id,national_id_or_cr,full_name,phone,tenant_type,national_address')
     .eq('is_deleted', false)
+  q = withCompanyEq(q, readScope)
+  const { data, error } = await q
   if (error) throw error
   return data || []
 }
 
-async function createUnitDirect(payload) {
+async function createUnitDirect(payload, write) {
+  await assertParentInWriteCompany('properties', payload.property_id, write.companyId, 'property')
+  const stamped = stampInsert({ ...payload, is_deleted: false }, write)
   const { data, error } = await supabase
     .from('units')
-    .insert({ ...payload, is_deleted: false })
+    .insert(stamped)
     .select('id,property_id,unit_name,target_rent_value,rooms_count,status,electricity_meter_ref,water_meter_ref')
     .single()
   if (error) throw error
@@ -94,10 +112,16 @@ export async function executeSmartImport({ propertyId, rows }) {
   const list = Array.isArray(rows) ? rows : []
   if (!list.length) throw new Error('No rows to import')
 
+  const write = await resolveWriteCompany()
+  if (!write.allowWrite) {
+    throw new Error(write.reasonIfDenied || 'Import write denied by tenancy adapter.')
+  }
+
+  const scope = await resolveReadScope()
   const [properties, units, tenants, owners] = await Promise.all([
-    fetchActivePropertiesLite(),
-    fetchActiveUnitsLite(),
-    fetchActiveTenantsLite(),
+    fetchActivePropertiesLite(scope),
+    fetchActiveUnitsLite(scope),
+    fetchActiveTenantsLite(scope),
     getOwners(),
   ])
 
@@ -208,16 +232,19 @@ export async function executeSmartImport({ propertyId, rows }) {
       let unit = unitByPropertyAndName.get(unitKey) || null
 
       if (!unit) {
-        unit = await createUnitDirect({
-          property_id: property.id,
-          unit_name: unitName,
-          type: 'Residential',
-          target_rent_value: rent,
-          rooms_count: rooms,
-          status: 'شاغرة',
-          electricity_meter_ref: null,
-          water_meter_ref: null,
-        })
+        unit = await createUnitDirect(
+          {
+            property_id: property.id,
+            unit_name: unitName,
+            type: 'Residential',
+            target_rent_value: rent,
+            rooms_count: rooms,
+            status: 'شاغرة',
+            electricity_meter_ref: null,
+            water_meter_ref: null,
+          },
+          write,
+        )
         unitByPropertyAndName.set(unitKey, unit)
         summary.unitsInserted += 1
       } else {

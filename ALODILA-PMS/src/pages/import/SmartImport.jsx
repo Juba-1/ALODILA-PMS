@@ -454,10 +454,10 @@ export default function SmartImport() {
           ) : null}
 
           <div className="flex gap-3 text-sm">
-            <Link to="/properties" className="font-semibold text-slate-900 underline-offset-2 hover:underline">
+            <Link to="/company/properties" className="font-semibold text-slate-900 underline-offset-2 hover:underline">
               {t('smartImport.propertiesLink')}
             </Link>
-            <Link to="/units-inventory" className="font-semibold text-slate-900 underline-offset-2 hover:underline">
+            <Link to="/company/units-inventory" className="font-semibold text-slate-900 underline-offset-2 hover:underline">
               {t('smartImport.unitsInventoryLink')}
             </Link>
           </div>

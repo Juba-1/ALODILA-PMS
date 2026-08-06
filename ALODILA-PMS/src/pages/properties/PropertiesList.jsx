@@ -118,7 +118,7 @@ export default function PropertiesList() {
                   })
                 }
               />
-              <Link to="/properties/new">
+              <Link to="/company/properties/new">
                 <Button variant="gold">{t('propertiesList.newProperty')}</Button>
               </Link>
             </div>

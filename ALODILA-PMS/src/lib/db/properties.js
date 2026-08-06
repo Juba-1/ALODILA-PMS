@@ -1,8 +1,17 @@
 import { supabase } from '../supabase/client'
 import { naturalCompare } from '../sort/naturalCompare'
+import {
+  resolveWriteCompany,
+  stampInsert,
+  assertParentInWriteCompany,
+  resolveReadScope,
+  withCompanyEq,
+  withWriteCompanyEq,
+  assertRowInScope,
+} from '../tenancy/index.js'
 
 const PROPERTY_COLS =
-  'id,name,category,type,deed_number,maps_link,total_units_capacity,electricity_meter_count,water_meter_count,owner_crm_id,management_start_date,assigned_manager,created_at,updated_at'
+  'id,name,category,type,deed_number,maps_link,total_units_capacity,electricity_meter_count,water_meter_count,owner_crm_id,management_start_date,assigned_manager,company_id,created_at,updated_at'
 
 /** Normalize CRM owner UUID for insert/update (empty → null). */
 function normalizeOwnerCrmId(value) {
@@ -21,10 +30,10 @@ function normalizeAssignedManager(value) {
 export async function getActiveProperties() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
-    .from('properties')
-    .select(PROPERTY_COLS)
-    .eq('is_deleted', false)
+  const scope = await resolveReadScope()
+  let q = supabase.from('properties').select(PROPERTY_COLS).eq('is_deleted', false)
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q
 
   if (error) throw error
   return (data || []).slice().sort((a, b) => naturalCompare(a?.name, b?.name))
@@ -33,14 +42,17 @@ export async function getActiveProperties() {
 export async function getPropertyById(propertyId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('properties')
     .select(PROPERTY_COLS)
     .eq('id', propertyId)
     .eq('is_deleted', false)
-    .single()
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q.maybeSingle()
 
   if (error) throw error
+  if (data) assertRowInScope(data, scope)
   return data
 }
 
@@ -85,9 +97,15 @@ export async function createProperty({
     is_deleted: false,
   }
 
+  const write = await resolveWriteCompany()
+  if (payload.owner_crm_id) {
+    await assertParentInWriteCompany('owners', payload.owner_crm_id, write.companyId, 'owner')
+  }
+  const stamped = stampInsert(payload, write)
+
   const { data, error } = await supabase
     .from('properties')
-    .insert(payload)
+    .insert(stamped)
     .select(PROPERTY_COLS)
     .single()
 
@@ -117,35 +135,43 @@ export async function updateProperty(propertyId, updates) {
     const n = Number(updates.water_meter_count)
     payload.water_meter_count = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
   }
+  delete payload.company_id
 
-  const { data, error } = await supabase
-    .from('properties')
-    .update(payload)
-    .eq('id', propertyId)
-    .eq('is_deleted', false)
-    .select(PROPERTY_COLS)
-    .single()
+  const write = await resolveWriteCompany()
+  if (payload.owner_crm_id) {
+    await assertParentInWriteCompany('owners', payload.owner_crm_id, write.companyId, 'owner')
+  }
+  let q = supabase.from('properties').update(payload).eq('id', propertyId).eq('is_deleted', false)
+  q = withWriteCompanyEq(q, write)
+  const { data, error } = await q.select(PROPERTY_COLS).maybeSingle()
 
   if (error) throw error
+  if (!data) throw new Error('Property not found or out of company scope.')
   return data
 }
 
 async function countActiveContractsOnProperty(propertyId) {
-  const { data: units, error: uErr } = await supabase
+  const scope = await resolveReadScope()
+
+  let unitsQ = supabase
     .from('units')
     .select('id')
     .eq('property_id', propertyId)
     .eq('is_deleted', false)
+  unitsQ = withCompanyEq(unitsQ, scope)
+  const { data: units, error: uErr } = await unitsQ
   if (uErr) throw uErr
   const unitIds = (units || []).map((u) => u.id).filter(Boolean)
   if (!unitIds.length) return 0
 
-  const { count, error } = await supabase
+  let contractsQ = supabase
     .from('contracts')
     .select('id', { count: 'exact', head: true })
     .eq('is_deleted', false)
     .eq('status', 'ساري')
     .in('unit_id', unitIds)
+  contractsQ = withCompanyEq(contractsQ, scope)
+  const { count, error } = await contractsQ
 
   if (error) throw error
   return count || 0
@@ -161,13 +187,12 @@ export async function softDeleteProperty(propertyId) {
     )
   }
 
-  const { data, error } = await supabase
-    .from('properties')
-    .update({ is_deleted: true })
-    .eq('id', propertyId)
-    .select('id')
+  const write = await resolveWriteCompany()
+  let delQ = supabase.from('properties').update({ is_deleted: true }).eq('id', propertyId)
+  delQ = withWriteCompanyEq(delQ, write)
+  const { data, error } = await delQ.select('id').maybeSingle()
 
   if (error) throw error
-  return data?.[0]?.id
+  if (!data) throw new Error('Property not found or out of company scope.')
+  return data.id
 }
-

@@ -1,13 +1,22 @@
 import { supabase } from '../supabase/client'
+import {
+  resolveWriteCompany,
+  stampInsert,
+  resolveReadScope,
+  withCompanyEq,
+  withWriteCompanyEq,
+} from '../tenancy/index.js'
 
 export async function getTenants() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('tenants')
     .select('id,national_id_or_cr,full_name,tenant_type,phone,national_address,compliance_index,created_at,updated_at')
     .eq('is_deleted', false)
-    .order('full_name', { ascending: true })
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q.order('full_name', { ascending: true })
 
   if (error) throw error
   return data || []
@@ -26,9 +35,12 @@ export async function createTenant(input) {
     is_deleted: false,
   }
 
+  const write = await resolveWriteCompany()
+  const stamped = stampInsert(payload, write)
+
   const { data, error } = await supabase
     .from('tenants')
-    .insert(payload)
+    .insert(stamped)
     .select('id,national_id_or_cr,full_name,tenant_type,phone,national_address,compliance_index,created_at,updated_at')
     .single()
 
@@ -45,34 +57,41 @@ export async function updateTenant(tenantId, updates) {
   if ('tenant_type' in (updates || {})) payload.tenant_type = String(updates.tenant_type || '').trim()
   if ('phone' in (updates || {})) payload.phone = String(updates.phone || '').trim()
   if ('national_address' in (updates || {})) payload.national_address = updates.national_address ? String(updates.national_address).trim() : null
+  delete payload.company_id
 
-  const { data, error } = await supabase
-    .from('tenants')
-    .update(payload)
-    .eq('id', tenantId)
-    .eq('is_deleted', false)
+  const write = await resolveWriteCompany()
+  let q = supabase.from('tenants').update(payload).eq('id', tenantId).eq('is_deleted', false)
+  q = withWriteCompanyEq(q, write)
+  const { data, error } = await q
     .select('id,national_id_or_cr,full_name,tenant_type,phone,national_address,compliance_index,created_at,updated_at')
-    .single()
+    .maybeSingle()
 
   if (error) throw error
+  if (!data) throw new Error('Tenant not found or out of company scope.')
   return data
 }
 
 export async function softDeleteTenant(tenantId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { count, error: cErr } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('contracts')
     .select('id', { count: 'exact', head: true })
     .eq('is_deleted', false)
     .eq('status', 'ساري')
     .eq('tenant_id', tenantId)
+  q = withCompanyEq(q, scope)
+  const { count, error: cErr } = await q
   if (cErr) throw cErr
   if ((count || 0) > 0) {
     throw new Error('لا يمكن إخفاء المستأجر: يوجد عقد ساري باسمه. أنهِ العقد أو غيّر الحالة أولاً.')
   }
 
-  const { error } = await supabase.from('tenants').update({ is_deleted: true }).eq('id', tenantId)
+  const write = await resolveWriteCompany()
+  let delQ = supabase.from('tenants').update({ is_deleted: true }).eq('id', tenantId)
+  delQ = withWriteCompanyEq(delQ, write)
+  const { data, error } = await delQ.select('id').maybeSingle()
   if (error) throw error
+  if (!data) throw new Error('Tenant not found or out of company scope.')
 }
-

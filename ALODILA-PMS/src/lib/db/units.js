@@ -1,14 +1,25 @@
 import { supabase } from '../supabase/client'
 import { naturalCompare } from '../sort/naturalCompare'
+import {
+  resolveWriteCompany,
+  stampInsert,
+  assertParentInWriteCompany,
+  resolveReadScope,
+  withCompanyEq,
+  withWriteCompanyEq,
+} from '../tenancy/index.js'
 
 export async function getActiveUnitsByPropertyId(propertyId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('units')
     .select('id,unit_name,type,target_rent_value,rooms_count,status,electricity_meter_ref,water_meter_ref,created_at,updated_at')
     .eq('property_id', propertyId)
     .eq('is_deleted', false)
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q
 
   if (error) throw error
   return (data || []).slice().sort((a, b) => naturalCompare(a?.unit_name, b?.unit_name))
@@ -17,7 +28,8 @@ export async function getActiveUnitsByPropertyId(propertyId) {
 export async function getActiveUnits() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('units')
     .select(
       `
@@ -34,6 +46,8 @@ export async function getActiveUnits() {
     `,
     )
     .eq('is_deleted', false)
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q
 
   if (error) throw error
   return (data || [])
@@ -50,7 +64,8 @@ export async function getActiveUnits() {
 export async function getUnitsInventory() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('units')
     .select(
       `
@@ -67,6 +82,8 @@ export async function getUnitsInventory() {
     `,
     )
     .eq('is_deleted', false)
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q
 
   if (error) throw error
   return (data || [])
@@ -84,20 +101,30 @@ export async function getUnitsInventory() {
 export async function bulkCreateUnits(units) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const payload = (units || []).map((u) => {
+  const write = await resolveWriteCompany()
+  const list = units || []
+  const propertyIds = [...new Set(list.map((u) => u.property_id).filter(Boolean))]
+  for (const propertyId of propertyIds) {
+    await assertParentInWriteCompany('properties', propertyId, write.companyId, 'property')
+  }
+
+  const payload = list.map((u) => {
     const rc = Number(u.rooms_count)
     const rooms = Number.isFinite(rc) && rc > 0 ? Math.floor(rc) : 1
-    return {
-      property_id: u.property_id,
-      unit_name: String(u.unit_name).trim(),
-      type: u.type,
-      target_rent_value: Number(u.target_rent_value),
-      rooms_count: rooms,
-      status: typeof u.status === 'string' && u.status ? u.status : 'شاغرة',
-      electricity_meter_ref: u.electricity_meter_ref != null && String(u.electricity_meter_ref).trim() ? String(u.electricity_meter_ref).trim() : null,
-      water_meter_ref: u.water_meter_ref != null && String(u.water_meter_ref).trim() ? String(u.water_meter_ref).trim() : null,
-      is_deleted: false,
-    }
+    return stampInsert(
+      {
+        property_id: u.property_id,
+        unit_name: String(u.unit_name).trim(),
+        type: u.type,
+        target_rent_value: Number(u.target_rent_value),
+        rooms_count: rooms,
+        status: typeof u.status === 'string' && u.status ? u.status : 'شاغرة',
+        electricity_meter_ref: u.electricity_meter_ref != null && String(u.electricity_meter_ref).trim() ? String(u.electricity_meter_ref).trim() : null,
+        water_meter_ref: u.water_meter_ref != null && String(u.water_meter_ref).trim() ? String(u.water_meter_ref).trim() : null,
+        is_deleted: false,
+      },
+      write,
+    )
   })
 
   const { data, error } = await supabase
@@ -111,19 +138,26 @@ export async function bulkCreateUnits(units) {
 export async function softDeleteUnit(unitId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { count, error: cErr } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('contracts')
     .select('id', { count: 'exact', head: true })
     .eq('is_deleted', false)
     .eq('status', 'ساري')
     .eq('unit_id', unitId)
+  q = withCompanyEq(q, scope)
+  const { count, error: cErr } = await q
   if (cErr) throw cErr
   if ((count || 0) > 0) {
     throw new Error('لا يمكن إخفاء الوحدة: يوجد عقد ساري مرتبط بها. انقل المستأجر أو غيّر حالة العقد أولاً.')
   }
 
-  const { error } = await supabase.from('units').update({ is_deleted: true }).eq('id', unitId)
+  const write = await resolveWriteCompany()
+  let delQ = supabase.from('units').update({ is_deleted: true }).eq('id', unitId)
+  delQ = withWriteCompanyEq(delQ, write)
+  const { data, error } = await delQ.select('id').maybeSingle()
   if (error) throw error
+  if (!data) throw new Error('Unit not found or out of company scope.')
 }
 
 export async function updateUnit(unitId, updates) {
@@ -146,16 +180,16 @@ export async function updateUnit(unitId, updates) {
     const s = updates.water_meter_ref != null ? String(updates.water_meter_ref).trim() : ''
     payload.water_meter_ref = s.length ? s : null
   }
+  delete payload.company_id
 
-  const { data, error } = await supabase
-    .from('units')
-    .update(payload)
-    .eq('id', unitId)
-    .eq('is_deleted', false)
+  const write = await resolveWriteCompany()
+  let q = supabase.from('units').update(payload).eq('id', unitId).eq('is_deleted', false)
+  q = withWriteCompanyEq(q, write)
+  const { data, error } = await q
     .select('id,unit_name,type,target_rent_value,rooms_count,status,electricity_meter_ref,water_meter_ref,created_at,updated_at')
-    .single()
+    .maybeSingle()
 
   if (error) throw error
+  if (!data) throw new Error('Unit not found or out of company scope.')
   return data
 }
-

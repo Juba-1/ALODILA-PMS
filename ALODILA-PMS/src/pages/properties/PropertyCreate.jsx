@@ -138,7 +138,7 @@ export default function PropertyCreate() {
         assigned_manager: assignedManager,
       })
       push({ type: 'success', title: t('propertyCreate.toastPropertyCreated') })
-      navigate('/properties', { replace: true })
+      navigate('/company/properties', { replace: true })
     } catch (err) {
       reportLoadFailure(toastPush, err, t('propertyCreate.toastPropertyFail'), true)
     } finally {
@@ -263,7 +263,7 @@ export default function PropertyCreate() {
               <Button variant="gold" type="submit" disabled={busy} className="flex-1">
                 {busy ? t('propertyCreate.saving') : t('propertyCreate.save')}
               </Button>
-              <Button variant="subtle" type="button" onClick={() => navigate('/properties')} className="flex-1">
+              <Button variant="subtle" type="button" onClick={() => navigate('/company/properties')} className="flex-1">
                 {t('propertyCreate.back')}
               </Button>
             </div>

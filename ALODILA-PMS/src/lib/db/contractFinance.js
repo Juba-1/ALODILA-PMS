@@ -1,6 +1,15 @@
 import { supabase } from '../supabase/client'
 import { classifyInstallment, computeInstallmentSchedule } from '../finance/schedule'
 import { moneyToCents } from '../money/cents'
+import {
+  resolveWriteCompany,
+  stampInsert,
+  assertParentInWriteCompany,
+  resolveReadScope,
+  withCompanyEq,
+  withWriteCompanyEq,
+  assertRowInScope,
+} from '../tenancy/index.js'
 
 /**
  * All financial helpers that are "per-contract": schedule generation,
@@ -25,6 +34,7 @@ const CONTRACT_FINANCE_SELECT = `
   utility_payment_type,
   utility_flat_amount_sar,
   handover_notes,
+  company_id,
   tenant:tenants(id, full_name, phone),
   unit:units(
     id,
@@ -42,6 +52,7 @@ const INVOICE_FINANCE_SELECT = `
   vat_applicable,
   total_amount,
   created_at,
+  company_id,
   payments:payments(id, amount, payment_date, is_deleted)
 `
 
@@ -79,13 +90,32 @@ export async function generateInstallmentsForContract(contract, options = {}) {
 
   const { vat_applicable = false, replaceExisting = false } = options
 
+  // Write gate before soft-delete / insert (Stream B order preserved).
+  const write = await resolveWriteCompany()
+  await assertParentInWriteCompany('contracts', contract.id, write.companyId, 'contract')
+
+  // Prep SELECT: existing invoices for this contract, company-scoped.
+  const scope = await resolveReadScope()
+  let existingQ = supabase
+    .from('invoices')
+    .select('id')
+    .eq('contract_id', contract.id)
+    .eq('is_deleted', false)
+  existingQ = withCompanyEq(existingQ, scope)
+  const { data: existingRows, error: existingErr } = await existingQ
+  if (existingErr) throw existingErr
+
   if (replaceExisting) {
-    const { error: delErr } = await supabase
-      .from('invoices')
-      .update({ is_deleted: true })
-      .eq('contract_id', contract.id)
-      .eq('is_deleted', false)
-    if (delErr) throw delErr
+    const existingIds = (existingRows || []).map((r) => r.id).filter(Boolean)
+    if (existingIds.length) {
+      let delQ = supabase
+        .from('invoices')
+        .update({ is_deleted: true })
+        .in('id', existingIds)
+      delQ = withWriteCompanyEq(delQ, write)
+      const { error: delErr } = await delQ
+      if (delErr) throw delErr
+    }
   }
 
   const { installments } = computeInstallmentSchedule({
@@ -100,14 +130,19 @@ export async function generateInstallmentsForContract(contract, options = {}) {
 
   if (!installments.length) return { inserted: [], skipped: true, count: 0 }
 
-  const payload = installments.map((inst) => ({
-    contract_id: contract.id,
-    due_date: inst.due_date,
-    subtotal_amount: inst.subtotal_amount,
-    vat_applicable: Boolean(vat_applicable),
-    total_amount: inst.total_amount,
-    is_deleted: false,
-  }))
+  const payload = installments.map((inst) =>
+    stampInsert(
+      {
+        contract_id: contract.id,
+        due_date: inst.due_date,
+        subtotal_amount: inst.subtotal_amount,
+        vat_applicable: Boolean(vat_applicable),
+        total_amount: inst.total_amount,
+        is_deleted: false,
+      },
+      write,
+    ),
+  )
 
   const { data, error } = await supabase
     .from('invoices')
@@ -126,11 +161,14 @@ export async function deletePendingInvoicesForContract(contractId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
   if (!contractId) throw new Error('contractId is required')
 
-  const { data: invoiceRows, error: iErr } = await supabase
+  const scope = await resolveReadScope()
+  let invQ = supabase
     .from('invoices')
     .select(INVOICE_FINANCE_SELECT)
     .eq('contract_id', contractId)
     .eq('is_deleted', false)
+  invQ = withCompanyEq(invQ, scope)
+  const { data: invoiceRows, error: iErr } = await invQ
 
   if (iErr) throw iErr
 
@@ -141,7 +179,10 @@ export async function deletePendingInvoicesForContract(contractId) {
 
   if (!pendingIds.length) return { deletedCount: 0 }
 
-  const { error: delErr } = await supabase.from('invoices').update({ is_deleted: true }).in('id', pendingIds)
+  const write = await resolveWriteCompany()
+  let delQ = supabase.from('invoices').update({ is_deleted: true }).in('id', pendingIds)
+  delQ = withWriteCompanyEq(delQ, write)
+  const { error: delErr } = await delQ
   if (delErr) throw delErr
 
   return { deletedCount: pendingIds.length }
@@ -165,11 +206,18 @@ export async function regeneratePendingInstallmentsForContract(contract, options
 
   const { vat_applicable = false } = options
 
-  const { data: invoiceRows, error: iErr } = await supabase
+  // Write gate before soft-delete / insert (Stream B order preserved).
+  const write = await resolveWriteCompany()
+  await assertParentInWriteCompany('contracts', contract.id, write.companyId, 'contract')
+
+  const scope = await resolveReadScope()
+  let invQ = supabase
     .from('invoices')
     .select(INVOICE_FINANCE_SELECT)
     .eq('contract_id', contract.id)
     .eq('is_deleted', false)
+  invQ = withCompanyEq(invQ, scope)
+  const { data: invoiceRows, error: iErr } = await invQ
 
   if (iErr) throw iErr
 
@@ -177,7 +225,9 @@ export async function regeneratePendingInstallmentsForContract(contract, options
   const pendingIds = invoices.filter((inv) => classifyInstallment(inv) === 'pending').map((inv) => inv.id)
 
   if (pendingIds.length) {
-    const { error: delErr } = await supabase.from('invoices').update({ is_deleted: true }).in('id', pendingIds)
+    let delQ = supabase.from('invoices').update({ is_deleted: true }).in('id', pendingIds)
+    delQ = withWriteCompanyEq(delQ, write)
+    const { error: delErr } = await delQ
     if (delErr) throw delErr
   }
 
@@ -202,14 +252,19 @@ export async function regeneratePendingInstallmentsForContract(contract, options
     return { inserted: [], deletedCount: pendingIds.length, count: 0, totalInstallmentsCount }
   }
 
-  const payload = toInsert.map((inst) => ({
-    contract_id: contract.id,
-    due_date: inst.due_date,
-    subtotal_amount: inst.subtotal_amount,
-    vat_applicable: Boolean(vat_applicable),
-    total_amount: inst.total_amount,
-    is_deleted: false,
-  }))
+  const payload = toInsert.map((inst) =>
+    stampInsert(
+      {
+        contract_id: contract.id,
+        due_date: inst.due_date,
+        subtotal_amount: inst.subtotal_amount,
+        vat_applicable: Boolean(vat_applicable),
+        total_amount: inst.total_amount,
+        is_deleted: false,
+      },
+      write,
+    ),
+  )
 
   const { data, error } = await supabase
     .from('invoices')
@@ -235,22 +290,27 @@ export async function getContractFinance(contractId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
   if (!contractId) throw new Error('contractId is required')
 
-  const { data: contractRow, error: cErr } = await supabase
+  const scope = await resolveReadScope()
+  let contractQ = supabase
     .from('contracts')
     .select(CONTRACT_FINANCE_SELECT)
     .eq('id', contractId)
     .eq('is_deleted', false)
-    .maybeSingle()
+  contractQ = withCompanyEq(contractQ, scope)
+  const { data: contractRow, error: cErr } = await contractQ.maybeSingle()
 
   if (cErr) throw cErr
   if (!contractRow?.id) throw new Error('Contract not found')
+  assertRowInScope(contractRow, scope)
 
-  const { data: invoiceRows, error: iErr } = await supabase
+  let invQ = supabase
     .from('invoices')
     .select(INVOICE_FINANCE_SELECT)
     .eq('contract_id', contractId)
     .eq('is_deleted', false)
     .order('due_date', { ascending: true })
+  invQ = withCompanyEq(invQ, scope)
+  const { data: invoiceRows, error: iErr } = await invQ
 
   if (iErr) throw iErr
 

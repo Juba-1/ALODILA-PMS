@@ -106,7 +106,7 @@ export async function loadAiChatContext(user) {
       return {
         chatRole: 'owner',
         contextData: {
-          error: 'لا يوجد owner_crm_id في بيانات الجلسة — أعد تسجيل الدخول أو راجع app_metadata/user_metadata في Supabase Auth.',
+          error: 'لا يوجد owner_crm_id في بيانات الجلسة — أعد تسجيل الدخول أو راجع app_metadata في Supabase Auth (Gate A).',
         },
       }
     }

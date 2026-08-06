@@ -1,5 +1,6 @@
 import { supabase } from '../supabase/client'
 import { moneyToCents } from '../money/cents'
+import { resolveReadScope, withCompanyEq } from '../tenancy/index.js'
 
 /** Chunk size per request — bounded rows avoid statement timeouts vs loading entire tables. */
 const CHUNK = 2000
@@ -13,6 +14,7 @@ const MAX_CHUNKS = 500
 export async function sumPaymentsAmountAndMonth(monthKey) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
+  const scope = await resolveReadScope()
   const wantMonth = Boolean(monthKey && String(monthKey).length >= 7)
   const prefix = wantMonth ? String(monthKey).slice(0, 7) : ''
 
@@ -21,12 +23,9 @@ export async function sumPaymentsAmountAndMonth(monthKey) {
   let from = 0
 
   for (let i = 0; i < MAX_CHUNKS; i += 1) {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('amount, payment_date')
-      .eq('is_deleted', false)
-      .order('id', { ascending: true })
-      .range(from, from + CHUNK - 1)
+    let q = supabase.from('payments').select('amount, payment_date').eq('is_deleted', false)
+    q = withCompanyEq(q, scope)
+    const { data, error } = await q.order('id', { ascending: true }).range(from, from + CHUNK - 1)
 
     if (error) throw error
     const rows = data || []
@@ -51,6 +50,7 @@ export async function sumPaymentsAmountAndMonth(monthKey) {
 export async function sumMaintenanceCostAndMonth(monthKey) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
+  const scope = await resolveReadScope()
   const wantMonth = Boolean(monthKey && String(monthKey).length >= 7)
   const prefix = wantMonth ? String(monthKey).slice(0, 7) : ''
 
@@ -59,12 +59,9 @@ export async function sumMaintenanceCostAndMonth(monthKey) {
   let from = 0
 
   for (let i = 0; i < MAX_CHUNKS; i += 1) {
-    const { data, error } = await supabase
-      .from('maintenance_requests')
-      .select('cost_amount, created_at')
-      .eq('is_deleted', false)
-      .order('id', { ascending: true })
-      .range(from, from + CHUNK - 1)
+    let q = supabase.from('maintenance_requests').select('cost_amount, created_at').eq('is_deleted', false)
+    q = withCompanyEq(q, scope)
+    const { data, error } = await q.order('id', { ascending: true }).range(from, from + CHUNK - 1)
 
     if (error) throw error
     const rows = data || []
@@ -89,6 +86,7 @@ export async function sumMaintenanceCostAndMonth(monthKey) {
 export async function sumInvoicesTotalAndMonth(monthKey) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
+  const scope = await resolveReadScope()
   const wantMonth = Boolean(monthKey && String(monthKey).length >= 7)
   const prefix = wantMonth ? String(monthKey).slice(0, 7) : ''
 
@@ -97,12 +95,9 @@ export async function sumInvoicesTotalAndMonth(monthKey) {
   let from = 0
 
   for (let i = 0; i < MAX_CHUNKS; i += 1) {
-    const { data, error } = await supabase
-      .from('invoices')
-      .select('total_amount, due_date')
-      .eq('is_deleted', false)
-      .order('id', { ascending: true })
-      .range(from, from + CHUNK - 1)
+    let q = supabase.from('invoices').select('total_amount, due_date').eq('is_deleted', false)
+    q = withCompanyEq(q, scope)
+    const { data, error } = await q.order('id', { ascending: true }).range(from, from + CHUNK - 1)
 
     if (error) throw error
     const rows = data || []

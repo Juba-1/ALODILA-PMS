@@ -1,9 +1,11 @@
 import { supabase } from '../supabase/client'
+import { resolveReadScope, withCompanyEq } from '../tenancy/index.js'
 
 export async function getReportingPayments() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('payments')
     .select(
       `
@@ -27,6 +29,9 @@ export async function getReportingPayments() {
     `,
     )
     .eq('is_deleted', false)
+  q = withCompanyEq(q, scope)
+
+  const { data, error } = await q
 
   if (error) throw error
 
@@ -57,7 +62,8 @@ export async function getReportingPayments() {
 export async function getReportingMaintenance() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('maintenance_requests')
     .select(
       `
@@ -76,6 +82,9 @@ export async function getReportingMaintenance() {
     )
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
+  q = withCompanyEq(q, scope)
+
+  const { data, error } = await q
 
   if (error) throw error
 
@@ -110,7 +119,8 @@ export async function getReportingActiveLeases(limit = 80) {
 
   const cap = Math.min(Math.max(Number(limit) || 80, 1), 150)
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('contracts')
     .select(
       `
@@ -129,6 +139,9 @@ export async function getReportingActiveLeases(limit = 80) {
     .eq('status', 'ساري')
     .order('end_date', { ascending: true })
     .limit(cap)
+  q = withCompanyEq(q, scope)
+
+  const { data, error } = await q
 
   if (error) throw error
 

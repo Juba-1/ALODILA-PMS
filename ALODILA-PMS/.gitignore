@@ -15,6 +15,9 @@ dist-ssr
 .env.production
 .env.development
 .env
+.env.clone
+backups/
+rls-validation/release/.env.auth
 
 # Editor directories and files
 .vscode/*

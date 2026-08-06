@@ -1,4 +1,12 @@
 import { supabase } from '../supabase/client'
+import {
+  resolveWriteCompany,
+  stampInsert,
+  resolveReadScope,
+  withCompanyEq,
+  withWriteCompanyEq,
+  assertRowInScope,
+} from '../tenancy/index.js'
 
 /**
  * Anonymous-safe: SECURITY DEFINER RPC `owner_lookup_for_onboarding` (see schema_owner_onboarding.sql).
@@ -19,11 +27,13 @@ export async function ownerLookupForOnboarding(nationalId) {
 export async function getOwners() {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('owners')
     .select('id,full_name,national_id,phone,created_at,updated_at')
     .eq('is_deleted', false)
-    .order('full_name', { ascending: true })
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q.order('full_name', { ascending: true })
 
   if (error) throw error
   return data || []
@@ -32,14 +42,17 @@ export async function getOwners() {
 export async function getOwnerById(ownerId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { data, error } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('owners')
-    .select('id,full_name,national_id,phone,created_at,updated_at')
+    .select('id,full_name,national_id,phone,company_id,created_at,updated_at')
     .eq('id', ownerId)
     .eq('is_deleted', false)
-    .maybeSingle()
+  q = withCompanyEq(q, scope)
+  const { data, error } = await q.maybeSingle()
 
   if (error) throw error
+  if (data) assertRowInScope(data, scope)
   return data
 }
 
@@ -57,9 +70,12 @@ export async function createOwner(input) {
   if (!payload.national_id) throw new Error('national_id is required')
   if (!payload.phone) throw new Error('phone is required')
 
+  const write = await resolveWriteCompany()
+  const stamped = stampInsert(payload, write)
+
   const { data, error } = await supabase
     .from('owners')
-    .insert(payload)
+    .insert(stamped)
     .select('id,full_name,national_id,phone,created_at,updated_at')
     .single()
 
@@ -74,32 +90,38 @@ export async function updateOwner(ownerId, updates) {
   if ('full_name' in (updates || {})) payload.full_name = String(updates.full_name || '').trim()
   if ('national_id' in (updates || {})) payload.national_id = String(updates.national_id || '').trim()
   if ('phone' in (updates || {})) payload.phone = String(updates.phone || '').trim()
+  delete payload.company_id
 
-  const { data, error } = await supabase
-    .from('owners')
-    .update(payload)
-    .eq('id', ownerId)
-    .eq('is_deleted', false)
-    .select('id,full_name,national_id,phone,created_at,updated_at')
-    .single()
+  const write = await resolveWriteCompany()
+  let q = supabase.from('owners').update(payload).eq('id', ownerId).eq('is_deleted', false)
+  q = withWriteCompanyEq(q, write)
+  const { data, error } = await q.select('id,full_name,national_id,phone,created_at,updated_at').maybeSingle()
 
   if (error) throw error
+  if (!data) throw new Error('Owner not found or out of company scope.')
   return data
 }
 
 export async function softDeleteOwner(ownerId) {
   if (!supabase) throw new Error('Supabase is not configured (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).')
 
-  const { count, error: cErr } = await supabase
+  const scope = await resolveReadScope()
+  let q = supabase
     .from('properties')
     .select('id', { count: 'exact', head: true })
     .eq('is_deleted', false)
     .eq('owner_crm_id', ownerId)
+  q = withCompanyEq(q, scope)
+  const { count, error: cErr } = await q
   if (cErr) throw cErr
   if ((count || 0) > 0) {
     throw new Error('لا يمكن إخفاء المالك: يوجد عقار مرتبط به. غيّر مالك العقار أولاً ثم حاول مرة أخرى.')
   }
 
-  const { error } = await supabase.from('owners').update({ is_deleted: true }).eq('id', ownerId)
+  const write = await resolveWriteCompany()
+  let delQ = supabase.from('owners').update({ is_deleted: true }).eq('id', ownerId)
+  delQ = withWriteCompanyEq(delQ, write)
+  const { data, error } = await delQ.select('id').maybeSingle()
   if (error) throw error
+  if (!data) throw new Error('Owner not found or out of company scope.')
 }

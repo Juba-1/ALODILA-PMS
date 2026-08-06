@@ -1,0 +1,25 @@
+{
+  "validationDb": "alodila_rls_validation",
+  "forbiddenHostSubstrings": [
+    "supabase.co",
+    "pooler.supabase",
+    "ryfqqyrqmsyngwcsfjug"
+  ],
+  "alodilaCompanyId": "a1000000-a10d-4000-8000-000000000001",
+  "companyBId": "b2000000-b20d-4000-8000-000000000002",
+  "migrationFiles": [
+    "00_bootstrap_roles.sql",
+    "01_minimal_schema.sql",
+    "02_companies_seed.sql",
+    "../../supabase/migrations/00501_package_1_crm_roots.sql",
+    "../../supabase/migrations/00502_package_2_properties.sql",
+    "../../supabase/migrations/00503_package_3_units_meters.sql",
+    "../../supabase/migrations/00504_package_4_contracts.sql",
+    "../../supabase/migrations/00505_package_5_finance_operational.sql",
+    "../../supabase/migrations/006_sprint4_soft_rls_v2.sql",
+    "../../supabase/migrations/20260805120000_fix_with_check_helpers.sql",
+    "90_seed_synthetic.sql",
+    "91_jwt_simulator.sql",
+    "92_validation_suite.sql"
+  ]
+}

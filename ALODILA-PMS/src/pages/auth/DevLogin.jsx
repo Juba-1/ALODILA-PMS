@@ -7,6 +7,7 @@ import { Input, Label } from '../../components/ui/Input'
 import { useToastDispatch } from '../../components/toast/ToastProvider'
 import { hasSupabaseConfig, supabase } from '../../lib/supabase/client'
 import { isOwnerPortalUser } from '../../lib/auth/roles'
+import { homePathForUser } from '../../lib/routing/paths.js'
 import { ownerLookupForOnboarding } from '../../lib/db/owners'
 import { isIgnorableAuthLockError, reportLoadFailure } from '../../lib/supabase/authErrors'
 import { ALODILA_LOGO_URL } from '../../lib/brand/logoUrl'
@@ -82,14 +83,14 @@ export default function DevLogin() {
         if (error) throw error
         push({ type: 'success', title: t('auth.toastLoginOk') })
         const user = data?.session?.user
-        navigate(isOwnerPortalUser(user) ? '/owner' : '/', { replace: true })
+        navigate(homePathForUser(user), { replace: true })
       } else {
         if (!allowStaffSignup) throw new Error('Staff signup is disabled in production.')
         const { data, error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
         if (data?.session) {
           push({ type: 'success', title: t('auth.toastSignupOk') })
-          navigate('/', { replace: true })
+          navigate(homePathForUser(data.session.user), { replace: true })
         } else {
           push({
             type: 'info',
@@ -174,6 +175,9 @@ export default function DevLogin() {
         return
       }
 
+      // Authz requires app_metadata (006 V2). options.data only sets user_metadata.
+      // Gate A: after signup, promote role + owner_crm_id + company_id via Dashboard/service role.
+      // Until promoted, portal RLS/app helpers will deny this session.
       const signUp = await supabase.auth.signUp({
         email: authEmail,
         password: ownerPassword,

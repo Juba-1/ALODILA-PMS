@@ -1,23 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import DashboardLayout from './components/DashboardLayout.jsx'
 import OwnerLayout from './components/OwnerLayout.jsx'
 import DevLogin from './pages/auth/DevLogin.jsx'
-import PropertiesList from './pages/properties/PropertiesList.jsx'
-import PropertyCreate from './pages/properties/PropertyCreate.jsx'
-import PropertyDetail from './pages/properties/PropertyDetail.jsx'
-import TenantsList from './pages/tenants/TenantsList.jsx'
-import TenantStatement from './pages/tenants/TenantStatement.jsx'
-import OwnersList from './pages/owners/OwnersList.jsx'
-import ContractsList from './pages/contracts/ContractsList.jsx'
-import ContractDetail from './pages/contracts/ContractDetail.jsx'
-import InvoicesList from './pages/finance/InvoicesList.jsx'
-import InvoiceDetail from './pages/finance/InvoiceDetail.jsx'
-import UnitsInventory from './pages/units/UnitsInventory.jsx'
-import DashboardOverview from './pages/dashboard/DashboardOverview.jsx'
-import MaintenanceList from './pages/maintenance/MaintenanceList.jsx'
-import ReportsCenter from './pages/reports/ReportsCenter.jsx'
-import SmartImport from './pages/import/SmartImport.jsx'
+import AccessDenied from './pages/AccessDenied.jsx'
 import OwnerDashboard from './pages/owner/OwnerDashboard.jsx'
 import OwnerPropertiesList from './pages/owner/OwnerPropertiesList.jsx'
 import OwnerPropertyDetail from './pages/owner/OwnerPropertyDetail.jsx'
@@ -26,11 +11,14 @@ import OwnerMaintenance from './pages/owner/OwnerMaintenance.jsx'
 import { HtmlLangDirSync } from './components/HtmlLangDirSync.jsx'
 import i18n from './i18n/config.js'
 import { hasSupabaseConfig, supabase } from './lib/supabase/client.js'
-import { isOwnerPortalUser } from './lib/auth/roles.js'
 import { isIgnorableAuthLockError } from './lib/supabase/authErrors.js'
 import { ErrorBoundary } from './components/ErrorBoundary.jsx'
 import { ToastProvider } from './components/toast/ToastProvider.jsx'
 import { Toaster } from './components/toast/Toaster.jsx'
+import { PlatformRoutes } from './platform/index.js'
+import CompanyRoutes from './company/CompanyRoutes.jsx'
+import { productForUser } from './lib/routing/paths.js'
+import { COMPANY_HOME, OWNER_HOME, PLATFORM_HOME } from './lib/routing/paths.js'
 
 function bootDir() {
   try {
@@ -109,6 +97,8 @@ export default function App() {
     )
   }
 
+  const product = session ? productForUser(session.user) : null
+
   return (
     <ErrorBoundary>
       <ToastProvider>
@@ -118,7 +108,14 @@ export default function App() {
             <Routes>
               <Route path="*" element={<DevLogin />} />
             </Routes>
-          ) : isOwnerPortalUser(session.user) ? (
+          ) : product === 'platform' ? (
+            <Routes>
+              <Route path="/platform/*" element={<PlatformRoutes user={session.user} />} />
+              <Route path="/company/*" element={<Navigate to={PLATFORM_HOME} replace />} />
+              <Route path="/owner/*" element={<Navigate to={PLATFORM_HOME} replace />} />
+              <Route path="*" element={<Navigate to={PLATFORM_HOME} replace />} />
+            </Routes>
+          ) : product === 'owner' ? (
             <Routes>
               <Route path="/owner" element={<OwnerLayout />}>
                 <Route index element={<OwnerDashboard />} />
@@ -127,28 +124,32 @@ export default function App() {
                 <Route path="reports" element={<OwnerReports />} />
                 <Route path="maintenance" element={<OwnerMaintenance />} />
               </Route>
-              <Route path="*" element={<Navigate to="/owner" replace />} />
+              <Route path="/platform/*" element={<AccessDenied user={session.user} />} />
+              <Route path="/company/*" element={<Navigate to={OWNER_HOME} replace />} />
+              <Route path="*" element={<Navigate to={OWNER_HOME} replace />} />
+            </Routes>
+          ) : product === 'company' ? (
+            <Routes>
+              <Route path="/company/*" element={<CompanyRoutes user={session.user} />} />
+              {/* Legacy PMS paths → Company Portal */}
+              <Route path="/" element={<Navigate to={COMPANY_HOME} replace />} />
+              <Route path="/properties/*" element={<Navigate to={COMPANY_HOME + '/properties'} replace />} />
+              <Route path="/owners" element={<Navigate to={COMPANY_HOME + '/owners'} replace />} />
+              <Route path="/units-inventory" element={<Navigate to={COMPANY_HOME + '/units-inventory'} replace />} />
+              <Route path="/tenants/*" element={<Navigate to={COMPANY_HOME + '/tenants'} replace />} />
+              <Route path="/contracts/*" element={<Navigate to={COMPANY_HOME + '/contracts'} replace />} />
+              <Route path="/finance" element={<Navigate to={COMPANY_HOME + '/finance'} replace />} />
+              <Route path="/invoices/*" element={<Navigate to={COMPANY_HOME + '/finance'} replace />} />
+              <Route path="/maintenance" element={<Navigate to={COMPANY_HOME + '/maintenance'} replace />} />
+              <Route path="/reports" element={<Navigate to={COMPANY_HOME + '/reports'} replace />} />
+              <Route path="/smart-import" element={<Navigate to={COMPANY_HOME + '/smart-import'} replace />} />
+              <Route path="/platform/*" element={<Navigate to={COMPANY_HOME} replace />} />
+              <Route path="/owner/*" element={<Navigate to={COMPANY_HOME} replace />} />
+              <Route path="*" element={<Navigate to={COMPANY_HOME} replace />} />
             </Routes>
           ) : (
             <Routes>
-              <Route path="/" element={<DashboardLayout />}>
-                <Route index element={<DashboardOverview />} />
-                <Route path="properties" element={<PropertiesList />} />
-                <Route path="properties/new" element={<PropertyCreate />} />
-                <Route path="properties/:id" element={<PropertyDetail />} />
-                <Route path="units-inventory" element={<UnitsInventory />} />
-                <Route path="owners" element={<OwnersList />} />
-                <Route path="tenants" element={<TenantsList />} />
-                <Route path="tenants/:id/statement" element={<TenantStatement />} />
-                <Route path="contracts" element={<ContractsList />} />
-                <Route path="contracts/:id" element={<ContractDetail />} />
-                <Route path="finance" element={<InvoicesList />} />
-                <Route path="invoices/:id" element={<InvoiceDetail />} />
-                <Route path="maintenance" element={<MaintenanceList />} />
-                <Route path="reports" element={<ReportsCenter />} />
-                <Route path="smart-import" element={<SmartImport />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Route>
+              <Route path="*" element={<AccessDenied user={session.user} />} />
             </Routes>
           )}
         </BrowserRouter>
@@ -157,4 +158,3 @@ export default function App() {
     </ErrorBoundary>
   )
 }
-

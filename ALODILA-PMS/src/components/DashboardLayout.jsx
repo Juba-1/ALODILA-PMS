@@ -7,6 +7,7 @@ import { LanguageToggle } from './LanguageToggle'
 import { HamburgerButton, MobileNavDrawer } from './MobileNavDrawer'
 import { supabase } from '../lib/supabase/client'
 import { ALODILA_LOGO_URL } from '../lib/brand/logoUrl'
+import { COMPANY_HOME, companyPath } from '../lib/routing/paths.js'
 
 function ChartNavIcon({ className }) {
   return (
@@ -45,37 +46,49 @@ function NavLinks({ t, isActive, isHome, dir, onNavigate }) {
   const handle = () => onNavigate?.()
   return (
     <nav className="flex flex-col space-y-2">
-      <Link to="/" className={navClass(isHome)} onClick={handle}>
+      <Link to={COMPANY_HOME} className={navClass(isHome)} onClick={handle}>
         {t('nav.dashboard')}
       </Link>
-      <Link to="/properties" className={navClass(isActive('/properties'))} onClick={handle}>
+      <Link to={companyPath('properties')} className={navClass(isActive(companyPath('properties')))} onClick={handle}>
         {t('nav.properties')}
       </Link>
-      <Link to="/owners" className={navClass(isActive('/owners'))} onClick={handle}>
+      <Link to={companyPath('owners')} className={navClass(isActive(companyPath('owners')))} onClick={handle}>
         {t('nav.owners')}
       </Link>
-      <Link to="/units-inventory" className={navClass(isActive('/units-inventory'))} onClick={handle}>
+      <Link
+        to={companyPath('units-inventory')}
+        className={navClass(isActive(companyPath('units-inventory')))}
+        onClick={handle}
+      >
         {t('nav.unitsInventory')}
       </Link>
-      <Link to="/tenants" className={navClass(isActive('/tenants'))} onClick={handle}>
+      <Link to={companyPath('tenants')} className={navClass(isActive(companyPath('tenants')))} onClick={handle}>
         {t('nav.tenants')}
       </Link>
-      <Link to="/contracts" className={navClass(isActive('/contracts'))} onClick={handle}>
+      <Link to={companyPath('contracts')} className={navClass(isActive(companyPath('contracts')))} onClick={handle}>
         {t('nav.contracts')}
       </Link>
-      <Link to="/maintenance" className={navClass(isActive('/maintenance'))} onClick={handle}>
+      <Link
+        to={companyPath('maintenance')}
+        className={navClass(isActive(companyPath('maintenance')))}
+        onClick={handle}
+      >
         {t('nav.maintenance')}
       </Link>
-      <Link to="/finance" className={navClass(isActive('/finance'))} onClick={handle}>
+      <Link to={companyPath('finance')} className={navClass(isActive(companyPath('finance')))} onClick={handle}>
         {t('nav.finance')}
       </Link>
-      <Link to="/reports" className={navClass(isActive('/reports'))} onClick={handle}>
+      <Link to={companyPath('reports')} className={navClass(isActive(companyPath('reports')))} onClick={handle}>
         <span className={`flex items-center gap-2 ${dir === 'rtl' ? 'justify-end' : 'justify-start'}`}>
           <span>{t('nav.reports')}</span>
           <ChartNavIcon className="text-amber-400" />
         </span>
       </Link>
-      <Link to="/smart-import" className={navClass(isActive('/smart-import'))} onClick={handle}>
+      <Link
+        to={companyPath('smart-import')}
+        className={navClass(isActive(companyPath('smart-import')))}
+        onClick={handle}
+      >
         {t('nav.smartImport')}
       </Link>
     </nav>
@@ -95,7 +108,7 @@ export default function DashboardLayout() {
   }, [location.pathname])
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
-  const isHome = location.pathname === '/'
+  const isHome = location.pathname === COMPANY_HOME || location.pathname === `${COMPANY_HOME}/`
 
   async function onSignOut() {
     try {

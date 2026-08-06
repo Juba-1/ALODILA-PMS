@@ -369,7 +369,7 @@ export default function PropertyDetail() {
           <div>
             <div className="text-lg font-extrabold text-slate-900">{title}</div>
             <div className="mt-1 text-sm text-slate-500">
-              <Link to="/properties" className="font-semibold text-slate-900 hover:underline">
+              <Link to="/company/properties" className="font-semibold text-slate-900 hover:underline">
                 {t('propertyDetail.propertiesLink')}
               </Link>{' '}
               / {t('propertyDetail.breadcrumb')}

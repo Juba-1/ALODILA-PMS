@@ -8,6 +8,7 @@ import { HamburgerButton, MobileNavDrawer } from './MobileNavDrawer'
 import { supabase } from '../lib/supabase/client'
 import { isIgnorableAuthLockError } from '../lib/supabase/authErrors'
 import { isOwnerPortalUser, ownerCrmIdFromUser } from '../lib/auth/roles'
+import { homePathForUser } from '../lib/routing/paths.js'
 import { ALODILA_LOGO_URL } from '../lib/brand/logoUrl'
 
 function BrandHeader({ logoSrc, t }) {
@@ -108,12 +109,12 @@ export default function OwnerLayout() {
   }
 
   if (!isOwnerPortalUser(user)) {
-    return <Navigate to="/" replace />
+    return <Navigate to={homePathForUser(user)} replace />
   }
 
   const ownerCrmId = ownerCrmIdFromUser(user)
   if (!String(ownerCrmId || '').trim()) {
-    return <Navigate to="/" replace />
+    return <Navigate to={homePathForUser(user)} replace />
   }
 
   const logoSrc = ALODILA_LOGO_URL

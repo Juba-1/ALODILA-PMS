@@ -1,0 +1,4 @@
+﻿db-connection.local.env
+*.local.env
+*.dump
+*.sql
